@@ -3,21 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 稳定流体版</title>
+    <title>XR 实体流体</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: #111;
+            background: #000;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             color: white; z-index: 999;
         }
+        h1 { margin-bottom: 20px; color: #00ffff; text-shadow: 0 0 10px #00ffff; }
         button {
-            padding: 20px 50px; font-size: 22px; border-radius: 10px; border: none;
-            background: #00ff88; color: #000; font-weight: bold; cursor: pointer;
+            padding: 20px 60px; font-size: 24px; border-radius: 50px; border: none;
+            background: linear-gradient(45deg, #00ff88, #00aaff); color: #000; font-weight: bold;
         }
-        p { color: #888; margin-top: 20px; }
     </style>
+    <!-- 使用 jsDelivr 引入 Three.js -->
     <script type="importmap">
         { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
     </script>
@@ -25,9 +26,8 @@
 <body>
 
 <div id="launcher">
-    <h1>💧 稳定流体交互</h1>
+    <h1>💠 实体流体模式</h1>
     <button id="btn-enter">启动 AR</button>
-    <p>如果看到红框，说明定位成功</p>
 </div>
 
 <script type="module">
@@ -36,16 +36,19 @@
     let camera, scene, renderer;
     let hand1, hand2;
     let stage;
+
+    // --- 核心变量 ---
+    const PARTICLE_COUNT = 2000; // 2000个实体球
+    let meshSystem; // InstancedMesh 对象
+    const dummy = new THREE.Object3D(); // 辅助对象，用于计算矩阵
     
-    // 粒子系统
-    let particles, particleGeo;
-    const PARTICLE_COUNT = 2500; // 降低数量保平安
-    
-    // 物理数据
+    // 物理数组
     const posOriginal = new Float32Array(PARTICLE_COUNT * 3);
+    const position = new Float32Array(PARTICLE_COUNT * 3);
     const velocity = new Float32Array(PARTICLE_COUNT * 3);
+    const colors = new Float32Array(PARTICLE_COUNT * 3);
     
-    // 手部交互数据
+    // 手部数据
     const handsData = [
         { pos: new THREE.Vector3(), vel: new THREE.Vector3(), lastPos: new THREE.Vector3(), active: false },
         { pos: new THREE.Vector3(), vel: new THREE.Vector3(), lastPos: new THREE.Vector3(), active: false }
@@ -63,22 +66,8 @@
             document.getElementById('launcher').style.display = 'none';
             initThree(session);
         } catch (e) {
-            alert("启动错误: " + e.message);
+            alert("启动失败: " + e.message);
         }
-    }
-
-    // 生成光点纹理
-    function createGlowTexture() {
-        const canvas = document.createElement('canvas');
-        canvas.width = 32; canvas.height = 32;
-        const ctx = canvas.getContext('2d');
-        const grad = ctx.createRadialGradient(16, 16, 0, 16, 16, 16);
-        grad.addColorStop(0, 'rgba(255,255,255,1)');
-        grad.addColorStop(0.4, 'rgba(255,255,255,0.5)');
-        grad.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = grad;
-        ctx.fillRect(0,0,32,32);
-        return new THREE.CanvasTexture(canvas);
     }
 
     function initThree(session) {
@@ -86,7 +75,7 @@
         scene.background = null;
 
         camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 100);
-        
+
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -99,22 +88,20 @@
             document.getElementById('launcher').style.display = 'flex';
         });
 
-        // --- 舞台 (固定在面前) ---
+        // --- 舞台设置 (固定在面前 0.5 米) ---
         stage = new THREE.Group();
-        stage.position.set(0, -0.2, -0.5); // 眼前 0.5 米
+        stage.position.set(0, -0.2, -0.5); 
         scene.add(stage);
 
-        // 1. 【诊断】红色细线框 (确保你看得到位置)
-        // 如果你只看到红框没看到粒子，说明材质有问题
-        // 如果啥都没看到，说明定位有问题
+        // 1. 保留红框 (作为定位参考)
         const box = new THREE.Mesh(
-            new THREE.BoxGeometry(0.5, 0.5, 0.5),
-            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, transparent: true, opacity: 0.3 })
+            new THREE.BoxGeometry(0.6, 0.6, 0.6),
+            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, opacity: 0.2, transparent: true })
         );
         stage.add(box);
 
-        // 2. 粒子系统
-        createParticles();
+        // 2. 创建实体粒子系统
+        createSolidParticles();
 
         // 3. 手部
         hand1 = renderer.xr.getHand(0); scene.add(hand1);
@@ -123,55 +110,52 @@
         renderer.setAnimationLoop(render);
     }
 
-    function createParticles() {
-        const geometry = new THREE.BufferGeometry();
-        const positions = [];
-        const colors = [];
+    function createSolidParticles() {
+        // 使用 20面体几何体 (看起来像圆球，但面数少，性能好)
+        // 半径 0.006 (6毫米)
+        const geometry = new THREE.IcosahedronGeometry(0.006, 0);
         
+        // 材质：使用 MeshBasicMaterial 确保不受光照影响（最亮）
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffff,     // 基础白，颜色通过 instanceColor 修改
+            transparent: true,
+            opacity: 0.8,        // 半透明
+            depthWrite: false,   // 关闭深度写入，实现粒子重叠时的融合感
+            blending: THREE.NormalBlending // 正常混合，确保能看见
+        });
+
+        meshSystem = new THREE.InstancedMesh(geometry, material, PARTICLE_COUNT);
+        meshSystem.instanceMatrix.setUsage(THREE.DynamicDrawUsage); // 标记为动态，提升性能
+        
+        // 初始化位置和颜色
         const c1 = new THREE.Color(0x00ffff); // 青
         const c2 = new THREE.Color(0xff00ff); // 紫
 
-        for(let i=0; i<PARTICLE_COUNT; i++) {
-            // 随机分布在球体内
-            const x = (Math.random()-0.5) * 0.4;
-            const y = (Math.random()-0.5) * 0.4;
-            const z = (Math.random()-0.5) * 0.4;
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            // 随机分布
+            const x = (Math.random() - 0.5) * 0.5;
+            const y = (Math.random() - 0.5) * 0.5;
+            const z = (Math.random() - 0.5) * 0.5;
 
-            positions.push(x, y, z);
-            
-            // 物理初始数据
-            posOriginal[i*3] = x;
-            posOriginal[i*3+1] = y;
-            posOriginal[i*3+2] = z;
-            velocity[i*3] = 0;
-            velocity[i*3+1] = 0;
-            velocity[i*3+2] = 0;
+            // 存入物理数组
+            posOriginal[i*3] = x; posOriginal[i*3+1] = y; posOriginal[i*3+2] = z;
+            position[i*3] = x;    position[i*3+1] = y;    position[i*3+2] = z;
+            velocity[i*3] = 0;    velocity[i*3+1] = 0;    velocity[i*3+2] = 0;
 
-            // 颜色
-            const c = c1.clone().lerp(c2, Math.random());
-            colors.push(c.r, c.g, c.b);
+            // 设置初始矩阵
+            dummy.position.set(x, y, z);
+            dummy.updateMatrix();
+            meshSystem.setMatrixAt(i, dummy.matrix);
+
+            // 设置颜色
+            const color = c1.clone().lerp(c2, Math.random());
+            meshSystem.setColorAt(i, color);
         }
 
-        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-        particleGeo = geometry;
-
-        const material = new THREE.PointsMaterial({
-            size: 0.015,
-            map: createGlowTexture(),
-            vertexColors: true,
-            transparent: true, 
-            opacity: 1.0, // 强制不透明度
-            blending: THREE.NormalBlending, // 稳定混合模式
-            depthWrite: false, // 关键：防止粒子互相遮挡变成黑块
-            depthTest: true
-        });
-
-        particles = new THREE.Points(geometry, material);
-        stage.add(particles);
+        stage.add(meshSystem);
     }
 
-    // 更新手部物理
+    // 更新手部数据
     function updateHand(hand, data) {
         if(hand && hand.joints && hand.joints['index-finger-tip']) {
             const joint = hand.joints['index-finger-tip'];
@@ -179,16 +163,14 @@
 
             const worldPos = new THREE.Vector3();
             joint.getWorldPosition(worldPos);
-            
-            // 转为舞台局部坐标
             const localPos = worldPos.clone().sub(stage.position);
             
             data.active = true;
             data.pos.copy(localPos);
             
-            // 计算速度
             if(data.lastPos.lengthSq() > 0) {
-                data.vel.copy(data.pos).sub(data.lastPos);
+                // 计算速度
+                data.vel.copy(data.pos).sub(data.lastPos).multiplyScalar(2.0); // 放大一点速度感
             }
             data.lastPos.copy(data.pos);
         } else {
@@ -205,29 +187,32 @@
     }
 
     function render() {
-        // 更新手部数据
         updateHand(hand1, handsData[0]);
         updateHand(hand2, handsData[1]);
 
-        // 手势判断
         let gesture = 'neutral';
         const g1 = getGesture(hand1); const g2 = getGesture(hand2);
         if(g1 !== 'neutral') gesture = g1; else if(g2 !== 'neutral') gesture = g2;
 
         // 物理参数
         const returnForce = 0.02;
-        const friction = 0.90;
-        const pushRadiusSq = 0.15 * 0.15; // 15cm
+        const friction = 0.92;
+        const interactRadiusSq = 0.12 * 0.12; // 12cm 交互范围
 
-        // 粒子循环
-        const pos = particleGeo.attributes.position.array;
-        
-        for(let i=0; i<PARTICLE_COUNT; i++) {
-            const ix = i*3;
-            let px = pos[ix], py = pos[ix+1], pz = pos[ix+2];
-            let vx = velocity[ix], vy = velocity[ix+1], vz = velocity[ix+2];
+        // 颜色对象 (用于临时计算)
+        const tempColor = new THREE.Color();
 
-            // 1. 手部拨动 (流体感)
+        // 循环所有粒子
+        for (let i = 0; i < PARTICLE_COUNT; i++) {
+            const ix = i * 3;
+            let px = position[ix];
+            let py = position[ix+1];
+            let pz = position[ix+2];
+            let vx = velocity[ix];
+            let vy = velocity[ix+1];
+            let vz = velocity[ix+2];
+
+            // 1. 手部流体交互
             for(let h=0; h<2; h++) {
                 if(handsData[h].active) {
                     const dx = px - handsData[h].pos.x;
@@ -235,53 +220,73 @@
                     const dz = pz - handsData[h].pos.z;
                     const dSq = dx*dx + dy*dy + dz*dz;
 
-                    if(dSq < pushRadiusSq) {
+                    if(dSq < interactRadiusSq) {
                         const d = Math.sqrt(dSq);
-                        const f = (1 - d/0.15); // 力度
+                        const f = (1 - d / 0.12);
 
-                        // 排斥
-                        vx += (dx/d) * f * 0.003;
-                        vy += (dy/d) * f * 0.003;
-                        vz += (dz/d) * f * 0.003;
-
-                        // 拖拽 (跟随手速)
-                        vx += handsData[h].vel.x * f * 0.05;
-                        vy += handsData[h].vel.y * f * 0.05;
-                        vz += handsData[h].vel.z * f * 0.05;
+                        // 斥力
+                        vx += (dx / d) * f * 0.004;
+                        vy += (dy / d) * f * 0.004;
+                        vz += (dz / d) * f * 0.004;
+                        
+                        // 拖拽力 (Flow)
+                        vx += handsData[h].vel.x * f * 0.08;
+                        vy += handsData[h].vel.y * f * 0.08;
+                        vz += handsData[h].vel.z * f * 0.08;
                     }
                 }
             }
 
-            // 2. 手势全局力
+            // 2. 手势力场
             if(gesture === 'fist') {
-                vx -= px * 0.02; vy -= py * 0.02; vz -= pz * 0.02; // 吸入
+                vx -= px * 0.03; vy -= py * 0.03; vz -= pz * 0.03; // 强力聚合
             } else if(gesture === 'palm') {
-                vx += px * 0.01; vy += py * 0.01; vz += pz * 0.01; // 炸开
+                vx += px * 0.02; vy += py * 0.02; vz += pz * 0.02; // 爆发
             } else {
-                // 回家
+                // 缓慢回家
                 vx += (posOriginal[ix] - px) * returnForce;
                 vy += (posOriginal[ix+1] - py) * returnForce;
                 vz += (posOriginal[ix+2] - pz) * returnForce;
             }
 
-            // 3. 物理积分
+            // 3. 物理应用
             vx *= friction; vy *= friction; vz *= friction;
             px += vx; py += vy; pz += vz;
 
-            // 回写
-            pos[ix] = px; pos[ix+1] = py; pos[ix+2] = pz;
+            // 回写数组
+            position[ix] = px; position[ix+1] = py; position[ix+2] = pz;
             velocity[ix] = vx; velocity[ix+1] = vy; velocity[ix+2] = vz;
+
+            // 4. 更新 InstancedMesh 矩阵
+            dummy.position.set(px, py, pz);
+            
+            // 简单的自转，增加立体感
+            dummy.rotation.x += vx * 5;
+            dummy.rotation.y += vy * 5;
+            
+            dummy.updateMatrix();
+            meshSystem.setMatrixAt(i, dummy.matrix);
+
+            // 5. 颜色动态变化 (根据速度变亮)
+            const speed = Math.sqrt(vx*vx + vy*vy + vz*vz);
+            if(gesture === 'palm') {
+                tempColor.setHex(0xffaa00); // 金
+            } else if (gesture === 'fist') {
+                tempColor.setHex(0xff0000); // 红
+            } else {
+                // 默认蓝紫，速度越快越白
+                tempColor.setRGB(0, 1, 1).lerp(new THREE.Color(0xff00ff), Math.sin(i)*0.5+0.5);
+                tempColor.lerp(new THREE.Color(0xffffff), Math.min(speed * 10, 1));
+            }
+            meshSystem.setColorAt(i, tempColor);
         }
 
-        particleGeo.attributes.position.needsUpdate = true;
-        
-        // 变色逻辑
-        if(gesture === 'palm') particles.material.color.lerp(new THREE.Color(0xffaa00), 0.1);
-        else if(gesture === 'fist') particles.material.color.lerp(new THREE.Color(0xff0000), 0.1);
-        else particles.material.color.lerp(new THREE.Color(0xffffff), 0.1);
+        // 标记更新
+        meshSystem.instanceMatrix.needsUpdate = true;
+        meshSystem.instanceColor.needsUpdate = true;
 
-        // 让红框自转，确认渲染没死
-        if(stage.children[0]) stage.children[0].rotation.y += 0.01;
+        // 旋转红框
+        stage.children[0].rotation.y += 0.005;
 
         renderer.render(scene, camera);
     }
