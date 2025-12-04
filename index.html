@@ -3,31 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 安全模式</title>
+    <title>XR 纯净修复版</title>
     <style>
         body { margin: 0; background-color: #000; color: white; font-family: sans-serif; }
-        /* 启动界面 */
-        #start-screen {
+        /* 这个界面只在进入 AR 之前显示，进入后会完全消失 */
+        #launcher {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background: #111; z-index: 10;
         }
         button {
-            padding: 20px 50px; font-size: 24px; background: #00ff00; border: none; border-radius: 10px;
+            padding: 20px 50px; font-size: 24px; background: #00ff00; border: none; border-radius: 10px; font-weight: bold;
         }
+        p { color: #aaa; margin-top: 10px; }
     </style>
-    <!-- 使用 jsDelivr 加载 Three.js -->
+    <!-- 使用稳定的 CDN -->
     <script type="importmap">
         { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
     </script>
 </head>
 <body>
 
-<!-- 只有在进入 AR 前能看到这个 -->
-<div id="start-screen">
-    <h1>防卡死安全版</h1>
-    <p>去掉了所有文字更新和悬浮层</p>
-    <button id="btn-enter">启动 AR</button>
+<div id="launcher">
+    <h1>🚀 纯净启动模式</h1>
+    <button id="btn-enter">点击进入 AR</button>
+    <p>去除 DOM Overlay，防止崩溃</p>
 </div>
 
 <script type="module">
@@ -37,81 +37,84 @@
     let hand1, hand2;
     let particles, particleGeo;
     let particleOriginalPos = [];
+    const particleCount = 1000;
     
-    // 为了不卡死，粒子数量减少到 600 (足够看清效果了)
-    const particleCount = 600;
-    
-    // 强制固定在面前的容器
+    // 强制显示容器
     let stage;
 
     document.getElementById('btn-enter').addEventListener('click', onEnter);
 
     async function onEnter() {
-        if (!navigator.xr) return alert("不支持 XR");
+        if (!navigator.xr) return alert("不支持 WebXR");
         
-        // 隐藏按钮
-        document.getElementById('start-screen').style.display = 'none';
-
         try {
-            // 注意：去掉了 optionalFeatures 里的 'dom-overlay'，这东西很容易导致崩溃
+            // 【关键修改】去掉了 dom-overlay，只请求最基础的功能
             const session = await navigator.xr.requestSession('immersive-ar', {
                 requiredFeatures: ['local'], 
-                optionalFeatures: ['hand-tracking'] 
+                optionalFeatures: ['hand-tracking'] // 手势作为可选项，不支持也不会崩
             });
+            
+            // 隐藏启动界面
+            document.getElementById('launcher').style.display = 'none';
+            
             initThree(session);
         } catch (e) {
             alert("启动失败: " + e.message);
-            // 如果失败，把按钮显示回来
-            document.getElementById('start-screen').style.display = 'flex';
         }
     }
 
     function initThree(session) {
+        // 1. 初始化场景
         scene = new THREE.Scene();
-        scene.background = null; // 透视背景
+        scene.background = null; // 透明背景
 
         camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
 
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-        renderer.setPixelRatio(window.devicePixelRatio); 
+        renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
-        renderer.xr.setReferenceSpaceType('local');
+        renderer.xr.setReferenceSpaceType('local'); // 以头为原点
         renderer.xr.setSession(session);
-        // 不再把 renderer 加到 body，防止冲突，WebXR 会自动处理输出
+        
+        // session 关闭时的清理逻辑，防止报那个 null 错误
+        session.addEventListener('end', () => {
+            renderer.setAnimationLoop(null);
+            document.getElementById('launcher').style.display = 'flex';
+        });
 
-        // --- 核心物体 ---
+        // 2. 创建一个始终跟随头部的容器
         stage = new THREE.Group();
-        stage.position.set(0, 0, -0.5); // 放在正前方 0.5米
+        // 位置：正前方 0.4 米，稍微低一点点便于观察
+        stage.position.set(0, -0.1, -0.4); 
         scene.add(stage);
 
-        // 1. 红色方块 (参照物)
+        // 3. 添加一个巨大的红色线框立方体 (绝对参照物)
         const box = new THREE.Mesh(
-            new THREE.BoxGeometry(0.15, 0.15, 0.15),
-            new THREE.MeshBasicMaterial({ color: 0xff0000 })
+            new THREE.BoxGeometry(0.2, 0.2, 0.2),
+            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
         );
-        box.position.set(0, 0.2, 0);
         stage.add(box);
 
-        // 2. 粒子
+        // 4. 创建粒子
         createParticles();
 
-        // 3. 手部
+        // 5. 手部追踪
         hand1 = renderer.xr.getHand(0); scene.add(hand1);
         hand2 = renderer.xr.getHand(1); scene.add(hand2);
 
-        // 开始循环
+        // 6. 启动循环
         renderer.setAnimationLoop(render);
     }
 
     function createParticles() {
         const geometry = new THREE.BufferGeometry();
         const positions = [];
-        // 创建一个球形分布
         for (let i = 0; i < particleCount; i++) {
-            const x = (Math.random() - 0.5) * 0.4;
-            const y = (Math.random() - 0.5) * 0.4;
-            const z = (Math.random() - 0.5) * 0.4;
+            // 生成在盒子内部
+            const x = (Math.random() - 0.5) * 0.2;
+            const y = (Math.random() - 0.5) * 0.2;
+            const z = (Math.random() - 0.5) * 0.2;
             positions.push(x, y, z);
             particleOriginalPos.push({x, y, z});
         }
@@ -120,9 +123,10 @@
 
         const material = new THREE.PointsMaterial({
             color: 0x00ffff,
-            size: 0.02, // 粒子大一点，容易看
-            blending: THREE.NormalBlending, // 不透明，防隐身
-            depthTest: false // 永远在最前
+            size: 0.01,
+            blending: THREE.NormalBlending, // 必须是 Normal，否则 AR 里看不见
+            depthTest: false, // 强制在最前，不被遮挡
+            transparent: false
         });
 
         particles = new THREE.Points(geometry, material);
@@ -138,26 +142,24 @@
     }
 
     function render() {
-        // 让粒子旋转，证明没卡死
-        if (particles) particles.rotation.y += 0.01;
+        // 旋转整个舞台，确信它活着
+        if(stage) stage.rotation.y += 0.01;
 
-        // 手势逻辑 (只做纯数学计算，不操作 DOM)
+        // 手势逻辑
         let gesture = 'neutral';
         const g1 = getHandGesture(hand1);
         const g2 = getHandGesture(hand2);
         if (g1 !== 'neutral' && g1 !== 'none') gesture = g1;
         else if (g2 !== 'neutral' && g2 !== 'none') gesture = g2;
 
-        // 粒子动画
+        // 粒子反馈
         if (particles) {
             const positions = particleGeo.attributes.position.array;
             
-            // 变色
-            if (gesture === 'palm') particles.material.color.setHex(0xffaa00);
-            else if (gesture === 'fist') particles.material.color.setHex(0xff0000);
-            else particles.material.color.setHex(0x00ffff);
+            if (gesture === 'palm') particles.material.color.setHex(0xffcc00); // 炸开变黄
+            else if (gesture === 'fist') particles.material.color.setHex(0xff0000); // 握拳变红
+            else particles.material.color.setHex(0x00ffff); // 默认青色
 
-            // 变形
             for(let i=0; i<particleCount; i++) {
                 const ix = i * 3;
                 const ox = particleOriginalPos[i].x;
@@ -165,10 +167,9 @@
                 const oz = particleOriginalPos[i].z;
                 
                 let scale = 1.0;
-                if (gesture === 'palm') scale = 2.5; // 爆炸
-                if (gesture === 'fist') scale = 0.0; // 消失
+                if (gesture === 'palm') scale = 2.0;
+                if (gesture === 'fist') scale = 0.1;
 
-                // 简单的平滑移动
                 positions[ix] += (ox * scale - positions[ix]) * 0.1;
                 positions[ix+1] += (oy * scale - positions[ix+1]) * 0.1;
                 positions[ix+2] += (oz * scale - positions[ix+2]) * 0.1;
