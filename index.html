@@ -3,27 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 气功炮</title>
+    <title>XR 气功炮实体现形</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(135deg, #111, #333);
+            background: #111;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             color: white; z-index: 999;
         }
-        h1 {
-            color: #ffdd00; text-shadow: 0 0 20px #ffaa00; 
-            letter-spacing: 5px; margin-bottom: 20px; font-style: italic;
-        }
+        h1 { color: #ffff00; text-shadow: 0 0 10px #ffaa00; margin-bottom: 20px; }
         button {
-            padding: 18px 50px; font-size: 22px; border-radius: 10px; 
-            border: 2px solid #ffdd00; background: rgba(0,0,0,0.6); 
-            color: #ffdd00; font-weight: bold; cursor: pointer;
-            box-shadow: 0 0 15px rgba(255, 200, 0, 0.4);
+            padding: 20px 60px; font-size: 24px; border-radius: 10px; border: 3px solid #ffff00;
+            background: #000; color: #ffff00; font-weight: bold; cursor: pointer;
         }
-        .guide { margin-top: 30px; color: #ddd; text-align: center; line-height: 2.0; font-size: 15px; }
-        b { color: #fff; font-weight: 900; }
+        .guide { margin-top: 20px; color: #ccc; text-align: center; line-height: 1.8; font-size: 16px; }
     </style>
     <script type="importmap">
         {
@@ -37,13 +31,12 @@
 <body>
 
 <div id="launcher">
-    <h1>KIKŌHŌ</h1>
-    <button id="btn-enter">修炼开始</button>
+    <h1>SHIN KIKŌHŌ</h1>
+    <button id="btn-enter">启动系统</button>
     <div class="guide">
-        🌀 <b>左手摊开</b>：凝聚立体螺旋丸<br>
-        🔺 <b>气功炮手势</b>：拇指对拇指，食指对食指<br>
-        (双手围成三角形/菱形窗口) -> 发射！<br>
-        👊 <b>握拳</b>：散去能量
+        🌀 <b>左手摊开</b>：螺旋丸 (聚气)<br>
+        🔺 <b>双手比三角</b>：气功炮 (拇指对拇指，食指对食指)<br>
+        👊 <b>握拳</b>：重置
     </div>
 </div>
 
@@ -56,23 +49,24 @@
     let stage;
     let meshSystem, dummy = new THREE.Object3D();
 
-    // 粒子数减少，提升单粒子质量
-    const PARTICLE_COUNT = 2000; 
+    // 粒子数
+    const PARTICLE_COUNT = 3000;
     
     // 物理数组
     const pos = new Float32Array(PARTICLE_COUNT * 3);
     const vel = new Float32Array(PARTICLE_COUNT * 3);
     const originalPos = new Float32Array(PARTICLE_COUNT * 3);
-    const phases = new Float32Array(PARTICLE_COUNT); // 呼吸相位
+    const phases = new Float32Array(PARTICLE_COUNT);
 
     // 手部缓存
     const handsInfo = {
-        left: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null, gesture: 'neutral' },
-        right: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null, gesture: 'neutral' }
+        left: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null },
+        right: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null }
     };
 
     let appState = 'IDLE'; 
     let fireDir = new THREE.Vector3(0,0,-1);
+    let kikohoCenter = new THREE.Vector3(); // 气功炮发射中心
     const clock = new THREE.Clock();
 
     document.getElementById('btn-enter').addEventListener('click', async () => {
@@ -88,24 +82,6 @@
             alert("启动失败: " + e.message);
         }
     });
-
-    // --- 核心：生成辉光贴图 ---
-    function createGlowSprite() {
-        const canvas = document.createElement('canvas');
-        canvas.width = 64; canvas.height = 64;
-        const ctx = canvas.getContext('2d');
-        
-        // 绘制多层光晕
-        const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
-        g.addColorStop(0, 'rgba(255, 255, 255, 1)');   // 核心极亮
-        g.addColorStop(0.3, 'rgba(255, 255, 255, 0.8)'); // 内圈
-        g.addColorStop(0.5, 'rgba(255, 255, 255, 0.2)'); // 外圈柔光
-        g.addColorStop(1, 'rgba(0, 0, 0, 0)');           // 边缘透明
-
-        ctx.fillStyle = g;
-        ctx.fillRect(0, 0, 64, 64);
-        return new THREE.CanvasTexture(canvas);
-    }
 
     function initThree(session) {
         scene = new THREE.Scene();
@@ -129,6 +105,14 @@
         stage.position.set(0, 0, 0); 
         scene.add(stage);
 
+        // 1. 红框参照物 (确认位置)
+        const box = new THREE.Mesh(
+            new THREE.BoxGeometry(0.3, 0.3, 0.3),
+            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
+        );
+        box.position.set(0, 0, -0.5); // 放在面前0.5米
+        stage.add(box);
+
         // 手部模型
         const handModelFactory = new XRHandModelFactory();
         function setupHand(index) {
@@ -141,24 +125,22 @@
         const h1 = setupHand(0); hand1 = h1.hand; handsInfo.left.model = h1.model;
         const h2 = setupHand(1); hand2 = h2.hand; handsInfo.right.model = h2.model;
 
-        createParticles();
+        createSolidParticles();
 
         renderer.setAnimationLoop(render);
     }
 
-    function createParticles() {
-        // 稍微大一点的平面或球体，配合贴图
-        const geometry = new THREE.PlaneGeometry(0.015, 0.015); // 使用面片，性能更好，光晕更自然
+    function createSolidParticles() {
+        // 【关键】使用实体几何体，不用贴图
+        const geometry = new THREE.IcosahedronGeometry(0.008, 0);
         
+        // 【关键】MeshBasicMaterial，不透明，确保可见
         const material = new THREE.MeshBasicMaterial({
             color: 0xffffff,
-            map: createGlowSprite(),
-            transparent: true,
-            opacity: 0.9,
-            depthWrite: false, // 关键：关闭深度写入，实现光晕叠加
-            side: THREE.DoubleSide,
-            blending: THREE.NormalBlending // AR下最稳
-            // blending: THREE.AdditiveBlending // 如果环境很黑，可以用这个，更亮
+            transparent: false, // 关闭透明
+            opacity: 1.0,
+            depthTest: true,
+            depthWrite: true
         });
 
         meshSystem = new THREE.InstancedMesh(geometry, material, PARTICLE_COUNT);
@@ -175,19 +157,19 @@
             pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
             originalPos[i*3] = x; originalPos[i*3+1] = y; originalPos[i*3+2] = z;
             vel[i*3] = 0; vel[i*3+1] = 0; vel[i*3+2] = 0;
-            phases[i] = Math.random() * 100; // 随机呼吸相位
+            phases[i] = Math.random() * 100;
 
             dummy.position.set(x,y,z);
             dummy.updateMatrix();
             meshSystem.setMatrixAt(i, dummy.matrix);
             
-            // 初始：冰蓝
-            meshSystem.setColorAt(i, new THREE.Color(0xaaddff));
+            // 初始颜色：青白
+            meshSystem.setColorAt(i, new THREE.Color(0xaaffff));
         }
         stage.add(meshSystem);
     }
 
-    // 修复手部显示
+    // 修复手部显示 (绿色线框)
     function fixHandMaterial(hand, colorHex) {
         if (!hand) return;
         hand.traverse((child) => {
@@ -195,7 +177,8 @@
                 child.material = new THREE.MeshBasicMaterial({
                     color: colorHex,
                     wireframe: true,
-                    transparent: true, opacity: 0.3, // 降低不透明度，不抢戏
+                    opacity: 0.5,
+                    transparent: true,
                     depthTest: false
                 });
             }
@@ -204,67 +187,73 @@
 
     function updateHandInfo(hand, info) {
         info.active = false;
-        
-        // 必须要有关键关节
         if (hand.joints && hand.joints['wrist'] && 
             hand.joints['thumb-tip'] && hand.joints['index-finger-tip']) {
             
-            info.active = true;
-            hand.joints['wrist'].getWorldPosition(info.wrist);
-            hand.joints['thumb-tip'].getWorldPosition(info.thumb);
-            hand.joints['index-finger-tip'].getWorldPosition(info.index);
-            
-            // 螺旋丸中心
-            info.pos.copy(info.wrist).add(new THREE.Vector3(0, 0.08, 0));
-
-            // 手势判定
-            const d = info.index.distanceTo(info.wrist);
-            // 0.07-0.14 是舒展但未绷直
-            if (d < 0.07) info.gesture = 'fist';
-            else if (d > 0.14) info.gesture = 'open'; 
-            else info.gesture = 'neutral';
+            // 必须检测到位置才算激活
+            if (hand.joints['wrist'].position.length() > 0) {
+                info.active = true;
+                hand.joints['wrist'].getWorldPosition(info.wrist);
+                hand.joints['thumb-tip'].getWorldPosition(info.thumb);
+                hand.joints['index-finger-tip'].getWorldPosition(info.index);
+                
+                // 螺旋丸中心 (左手)
+                info.pos.copy(info.wrist).add(new THREE.Vector3(0, 0.08, 0));
+            }
         }
     }
 
     function updateState() {
-        // 视觉提示色
-        let leftColor = 0xffffff;
-        let rightColor = 0xffffff;
+        let leftColor = 0x00ff00; // 默认绿
+        let rightColor = 0x00ff00;
 
-        // 1. 重置
-        if (handsInfo.left.gesture === 'fist' || handsInfo.right.gesture === 'fist') {
+        // 1. 握拳重置
+        let isFist = false;
+        if(hand1.joints && hand1.joints['middle-finger-tip']) {
+             const d = hand1.joints['middle-finger-tip'].position.distanceTo(hand1.joints['wrist'].position);
+             if (d < 0.08) isFist = true;
+        }
+        if (isFist) {
             appState = 'IDLE';
-            fixHandMaterial(handsInfo.left.model, 0x555555);
-            fixHandMaterial(handsInfo.right.model, 0x555555);
+            fixHandMaterial(handsInfo.left.model, 0xff0000);
+            fixHandMaterial(handsInfo.right.model, 0xff0000);
             return;
         }
 
-        // 2. 气功炮 (Tri-Beam) 判定
-        // 条件：左右手激活，且 (左拇指-右拇指 < 5cm) 且 (左食指-右食指 < 5cm)
+        // 2. 气功炮 (Kikoho) - 双手比三角形
+        // 判定：左拇指-右拇指 < 6cm 且 左食指-右食指 < 6cm
         if (handsInfo.left.active && handsInfo.right.active) {
             const thumbDist = handsInfo.left.thumb.distanceTo(handsInfo.right.thumb);
             const indexDist = handsInfo.left.index.distanceTo(handsInfo.right.index);
-            
+
             if (thumbDist < 0.06 && indexDist < 0.06) {
                 appState = 'FIRING';
                 
-                // 计算发射方向：穿过双手组成的“窗口”
-                // 窗口中心
-                const windowCenter = new THREE.Vector3().addVectors(handsInfo.left.index, handsInfo.left.thumb)
-                    .add(handsInfo.right.index).add(handsInfo.right.thumb).multiplyScalar(0.25);
+                // 计算发射中心：四个手指点的中心
+                kikohoCenter.set(0,0,0)
+                    .add(handsInfo.left.thumb).add(handsInfo.right.thumb)
+                    .add(handsInfo.left.index).add(handsInfo.right.index)
+                    .multiplyScalar(0.25);
                 
+                // 发射方向：头 -> 手中心
                 const headPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
-                fireDir.subVectors(windowCenter, headPos).normalize();
+                fireDir.subVectors(kikohoCenter, headPos).normalize();
 
-                fixHandMaterial(handsInfo.left.model, 0xffaa00); // 金
-                fixHandMaterial(handsInfo.right.model, 0xffaa00);
-                return; // 优先发射
+                leftColor = 0xffff00; // 金
+                rightColor = 0xffff00;
+                
+                // 强制更新手部颜色
+                fixHandMaterial(handsInfo.left.model, leftColor);
+                fixHandMaterial(handsInfo.right.model, rightColor);
+                return; // 优先触发气功炮
             }
         }
 
         // 3. 螺旋丸 (左手张开)
         if (handsInfo.left.active && appState !== 'FIRING') {
-            if (handsInfo.left.gesture === 'open') {
+            const d = hand1.joints['index-finger-tip'].position.distanceTo(hand1.joints['wrist'].position);
+            // 手指伸直 (d > 0.14)
+            if (d > 0.14) {
                 appState = 'CHARGING';
                 leftColor = 0x00ffff; // 亮青
             } else {
@@ -284,9 +273,12 @@
         updateHandInfo(hand2, handsInfo.right);
         updateState();
 
-        const cIdle = new THREE.Color(0xaaddff); // 淡蓝
-        const cCharge = new THREE.Color(0x88ccff); // 冰蓝
-        const cFire = new THREE.Color(0xffff00); // 金黄
+        const cIdle = new THREE.Color(0xaaffff); 
+        const cCharge = new THREE.Color(0x88ccff); 
+        const cFire = new THREE.Color(0xffff00); 
+
+        // 旋转红框 (确认存活)
+        stage.children[0].rotation.y += 0.01;
 
         for(let i=0; i<PARTICLE_COUNT; i++) {
             const ix = i*3;
@@ -295,89 +287,86 @@
 
             if (appState === 'FIRING') {
                 // --- 气功炮模式 ---
-                // 强力光束
+                // 所有粒子汇聚到窗口中心，然后发射
+                const target = kikohoCenter; // 发射点
+                
+                // 稍微吸附一下中心，形成光束源头
+                // vx += (target.x - px) * 0.1;
+                // vy += (target.y - py) * 0.1;
+                // vz += (target.z - pz) * 0.1;
+
+                // 猛烈发射
                 vx += fireDir.x * 0.3 + (Math.random()-0.5)*0.01;
                 vy += fireDir.y * 0.3 + (Math.random()-0.5)*0.01;
                 vz += fireDir.z * 0.3 + (Math.random()-0.5)*0.01;
                 
                 meshSystem.setColorAt(i, cFire);
-                dummy.scale.set(1.0, 1.0, 15.0); // 极长光束
+                
+                // 变成方块/长条状 (气功炮是方形的)
+                dummy.scale.set(3.0, 3.0, 5.0); 
                 dummy.lookAt(px+vx, py+vy, pz+vz);
 
             } else if (appState === 'CHARGING') {
-                // --- 立体螺旋丸模式 ---
+                // --- 螺旋丸模式 ---
                 const target = handsInfo.left.pos;
                 const dx = px - target.x;
                 const dy = py - target.y;
                 const dz = pz - target.z;
-                
-                // 计算距离
                 const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                 
-                // 1. 向心力：把粒子吸到半径 5cm (0.05) 的壳上
-                const targetRadius = 0.05;
-                const force = (dist - targetRadius) * 0.2; // 弹簧力
+                // 强力吸入到半径 5cm
+                const gravity = 0.2;
+                vx -= dx * gravity; vy -= dy * gravity; vz -= dz * gravity;
                 
-                // 将粒子拉向球体表面，而不是中心点（形成空心球或立体球）
-                vx -= (dx / dist) * force;
-                vy -= (dy / dist) * force;
-                vz -= (dz / dist) * force;
+                // 疯狂旋转
+                vx += dz * 1.5; vz -= dx * 1.5;
+                vy += (Math.cos(i) * 0.1); // 垂直扰动
 
-                // 2. 切向旋转 (龙卷风)
-                vx += dz * 1.5; // 极高转速
-                vz -= dx * 1.5;
-                // 加上一点垂直翻滚，形成球体覆盖
-                vy += (Math.cos(i) * 0.05);
-
-                // 3. 强阻尼
+                // 强阻尼
                 vx *= 0.5; vy *= 0.5; vz *= 0.5;
 
-                // 颜色
-                if (dist < 0.06) meshSystem.setColorAt(i, new THREE.Color(0xffffff)); // 核心极亮
+                // 颜色：核心白
+                if (dist < 0.06) meshSystem.setColorAt(i, new THREE.Color(0xffffff));
                 else meshSystem.setColorAt(i, cCharge);
 
-                dummy.scale.set(1.5, 1.5, 1.5); // 粒子变大，填满球体
-                dummy.lookAt(camera.position); // 面片朝向相机
+                dummy.scale.set(1.2, 1.2, 1.2); // 粒子大一点，显得实心
+                dummy.rotation.set(0,0,0);
 
             } else {
-                // --- 待机漂浮模式 ---
+                // --- 待机 ---
                 const ox = originalPos[ix], oy = originalPos[ix+1], oz = originalPos[ix+2];
+                // 呼吸浮动
+                const floatY = Math.sin(time * 2 + phases[i]) * 0.05;
                 
-                // 1. 呼吸漂浮 (Floating)
-                // 基于原始位置加上正弦波偏移
-                const floatY = Math.sin(time * 1.5 + phases[i]) * 0.05;
-                const targetY = oy + floatY;
-                
-                // 回家
-                vx += (ox - px) * 0.02;
-                vy += (targetY - py) * 0.02; // 回到漂浮的Y
-                vz += (oz - pz) * 0.02;
-                
-                // 2. 右手拨动
+                vx += (ox - px) * 0.03;
+                vy += (oy + floatY - py) * 0.03;
+                vz += (oz - pz) * 0.03;
+
+                // 右手拨动
                 if (handsInfo.right.active) {
-                     const dx = px - handsInfo.right.pos.x;
-                     const dy = py - handsInfo.right.pos.y;
-                     const dz = pz - handsInfo.right.pos.z;
-                     if (dx*dx+dy*dy+dz*dz < 0.05) {
-                         vx += dx * 0.05; vy += dy * 0.05; vz += dz * 0.05; // 推开
+                     const dx = px - handsInfo.right.wrist.x;
+                     const dy = py - handsInfo.right.wrist.y;
+                     const dz = pz - handsInfo.right.wrist.z;
+                     if (dx*dx+dy*dy+dz*dz < 0.1) {
+                         vx += dx * 0.05; vy += dy * 0.05; vz += dz * 0.05;
                      }
                 }
 
                 meshSystem.setColorAt(i, cIdle);
                 dummy.scale.set(1,1,1);
-                dummy.lookAt(camera.position); // 始终朝向相机
             }
 
-            // 物理结算
+            // 物理
             vx *= friction; vy *= friction; vz *= friction;
             px += vx; py += vy; pz += vz;
 
             // 循环复用
             if (appState === 'FIRING') {
-                if (px*px+py*py+pz*pz > 64) { // 飞出8米重置
-                    px = handsInfo.left.pos.x + (Math.random()-0.5)*0.1;
-                    py = handsInfo.left.pos.y + (Math.random()-0.5)*0.1;
-                    pz = handsInfo.left.pos.z + (Math.random()-0.5)*0.1;
+                if (px*px+py*py+pz*pz > 64) {
+                    // 从发射窗口重生
+                    px = kikohoCenter.x + (Math.random()-0.5)*0.2;
+                    py = kikohoCenter.y + (Math.random()-0.5)*0.2;
+                    pz = kikohoCenter.z + (Math.random()-0.5)*0.2;
                     vx=0;vy=0;vz=0;
                 }
             }
@@ -386,6 +375,9 @@
             vel[ix] = vx; vel[ix+1] = vy; vel[ix+2] = vz;
 
             dummy.position.set(px, py, pz);
+            if (appState !== 'FIRING') {
+                dummy.rotation.x += vx*5; dummy.rotation.y += vy*5;
+            }
             dummy.updateMatrix();
             meshSystem.setMatrixAt(i, dummy.matrix);
         }
