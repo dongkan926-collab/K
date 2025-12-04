@@ -3,21 +3,20 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 纯净修复版</title>
+    <title>XR 强制HUD版</title>
     <style>
         body { margin: 0; background-color: #000; color: white; font-family: sans-serif; }
-        /* 这个界面只在进入 AR 之前显示，进入后会完全消失 */
         #launcher {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             background: #111; z-index: 10;
         }
         button {
-            padding: 20px 50px; font-size: 24px; background: #00ff00; border: none; border-radius: 10px; font-weight: bold;
+            padding: 20px 50px; font-size: 24px; background: #ff0055; border: none; border-radius: 10px; font-weight: bold; color: white;
         }
-        p { color: #aaa; margin-top: 10px; }
+        p { color: #aaa; margin-top: 10px; max-width: 80%; text-align: center; }
     </style>
-    <!-- 使用稳定的 CDN -->
+    <!-- 引入 Three.js -->
     <script type="importmap">
         { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
     </script>
@@ -25,9 +24,9 @@
 <body>
 
 <div id="launcher">
-    <h1>🚀 纯净启动模式</h1>
-    <button id="btn-enter">点击进入 AR</button>
-    <p>去除 DOM Overlay，防止崩溃</p>
+    <h1>🎯 HUD 锁定模式</h1>
+    <p>这个版本会将粒子直接粘在你的镜头上。<br>不管你往哪看，它都会跟着你。</p>
+    <button id="btn-enter">启动 AR</button>
 </div>
 
 <script type="module">
@@ -35,28 +34,20 @@
 
     let camera, scene, renderer;
     let hand1, hand2;
-    let particles, particleGeo;
-    let particleOriginalPos = [];
+    let hudContainer; // 这是一个挂在相机上的容器
+    let particles, particleGeo, particleOriginalPos = [];
     const particleCount = 1000;
-    
-    // 强制显示容器
-    let stage;
 
     document.getElementById('btn-enter').addEventListener('click', onEnter);
 
     async function onEnter() {
         if (!navigator.xr) return alert("不支持 WebXR");
-        
         try {
-            // 【关键修改】去掉了 dom-overlay，只请求最基础的功能
             const session = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['local'], 
-                optionalFeatures: ['hand-tracking'] // 手势作为可选项，不支持也不会崩
+                requiredFeatures: ['local'],
+                optionalFeatures: ['hand-tracking']
             });
-            
-            // 隐藏启动界面
             document.getElementById('launcher').style.display = 'none';
-            
             initThree(session);
         } catch (e) {
             alert("启动失败: " + e.message);
@@ -64,46 +55,53 @@
     }
 
     function initThree(session) {
-        // 1. 初始化场景
         scene = new THREE.Scene();
         scene.background = null; // 透明背景
 
-        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 100);
+        // 【关键步骤】必须把 camera 加到 scene 里，否则挂在 camera 上的东西不会被渲染
+        scene.add(camera);
 
         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setPixelRatio(window.devicePixelRatio);
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
-        renderer.xr.setReferenceSpaceType('local'); // 以头为原点
+        renderer.xr.setReferenceSpaceType('local');
         renderer.xr.setSession(session);
-        
-        // session 关闭时的清理逻辑，防止报那个 null 错误
+
         session.addEventListener('end', () => {
             renderer.setAnimationLoop(null);
             document.getElementById('launcher').style.display = 'flex';
         });
 
-        // 2. 创建一个始终跟随头部的容器
-        stage = new THREE.Group();
-        // 位置：正前方 0.4 米，稍微低一点点便于观察
-        stage.position.set(0, -0.1, -0.4); 
-        scene.add(stage);
+        // --- 创建 HUD (抬头显示) ---
+        hudContainer = new THREE.Group();
+        // Z = -0.3 : 放在眼睛正前方 30 厘米处
+        // Y = -0.05 : 稍微低一点点，不挡视线
+        hudContainer.position.set(0, -0.05, -0.3);
+        
+        // 【核心魔法】把容器添加给相机，而不是场景！
+        camera.add(hudContainer);
 
-        // 3. 添加一个巨大的红色线框立方体 (绝对参照物)
-        const box = new THREE.Mesh(
-            new THREE.BoxGeometry(0.2, 0.2, 0.2),
-            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
+        // 1. 添加一个“绝对参照物”：红色的线框球
+        // 如果你连这个都看不见，说明显卡没有渲染
+        const debugMesh = new THREE.Mesh(
+            new THREE.SphereGeometry(0.05, 16, 16),
+            new THREE.MeshBasicMaterial({ 
+                color: 0xff0000, 
+                wireframe: true,
+                depthTest: false // 禁用深度测试，保证它永远在最前面
+            })
         );
-        stage.add(box);
+        hudContainer.add(debugMesh);
 
-        // 4. 创建粒子
+        // 2. 添加粒子系统
         createParticles();
 
-        // 5. 手部追踪
+        // 3. 手部追踪 (手是世界坐标，所以加到 scene，而不是 camera)
         hand1 = renderer.xr.getHand(0); scene.add(hand1);
         hand2 = renderer.xr.getHand(1); scene.add(hand2);
 
-        // 6. 启动循环
         renderer.setAnimationLoop(render);
     }
 
@@ -111,7 +109,7 @@
         const geometry = new THREE.BufferGeometry();
         const positions = [];
         for (let i = 0; i < particleCount; i++) {
-            // 生成在盒子内部
+            // 在 HUD 容器内随机分布
             const x = (Math.random() - 0.5) * 0.2;
             const y = (Math.random() - 0.5) * 0.2;
             const z = (Math.random() - 0.5) * 0.2;
@@ -123,43 +121,51 @@
 
         const material = new THREE.PointsMaterial({
             color: 0x00ffff,
-            size: 0.01,
-            blending: THREE.NormalBlending, // 必须是 Normal，否则 AR 里看不见
-            depthTest: false, // 强制在最前，不被遮挡
-            transparent: false
+            size: 0.008,
+            // 【关键设置】NormalBlending + 无深度测试 = 强制显示在最上层
+            blending: THREE.NormalBlending,
+            depthTest: false,
+            transparent: false 
         });
 
         particles = new THREE.Points(geometry, material);
-        stage.add(particles);
+        hudContainer.add(particles);
     }
 
-    function getHandGesture(hand) {
+    // 计算手势 (逻辑略微修改，因为现在要计算手相对于相机的距离)
+    function getGesture(hand) {
         if (!hand || !hand.joints || !hand.joints['wrist'] || !hand.joints['middle-finger-tip']) return 'neutral';
+        
+        // 计算手势本身的开合
         const d = hand.joints['wrist'].position.distanceTo(hand.joints['middle-finger-tip'].position);
+        
         if (d < 0.08) return 'fist';
         if (d > 0.12) return 'palm';
         return 'neutral';
     }
 
     function render() {
-        // 旋转整个舞台，确信它活着
-        if(stage) stage.rotation.y += 0.01;
+        // 让 HUD 里的参照球自转，证明还没死机
+        if(hudContainer.children[0]) {
+            hudContainer.children[0].rotation.y += 0.02;
+            hudContainer.children[0].rotation.x += 0.01;
+        }
 
-        // 手势逻辑
         let gesture = 'neutral';
-        const g1 = getHandGesture(hand1);
-        const g2 = getHandGesture(hand2);
-        if (g1 !== 'neutral' && g1 !== 'none') gesture = g1;
-        else if (g2 !== 'neutral' && g2 !== 'none') gesture = g2;
+        const g1 = getGesture(hand1);
+        const g2 = getGesture(hand2);
+        if (g1 !== 'neutral') gesture = g1;
+        else if (g2 !== 'neutral') gesture = g2;
 
-        // 粒子反馈
         if (particles) {
             const positions = particleGeo.attributes.position.array;
             
-            if (gesture === 'palm') particles.material.color.setHex(0xffcc00); // 炸开变黄
-            else if (gesture === 'fist') particles.material.color.setHex(0xff0000); // 握拳变红
-            else particles.material.color.setHex(0x00ffff); // 默认青色
+            // 变色逻辑
+            if (gesture === 'palm') particles.material.color.setHex(0xffaa00); // 黄
+            else if (gesture === 'fist') particles.material.color.setHex(0xff0055); // 红
+            else particles.material.color.setHex(0x00ffff); // 青
 
+            // 运动逻辑
             for(let i=0; i<particleCount; i++) {
                 const ix = i * 3;
                 const ox = particleOriginalPos[i].x;
@@ -167,8 +173,9 @@
                 const oz = particleOriginalPos[i].z;
                 
                 let scale = 1.0;
-                if (gesture === 'palm') scale = 2.0;
-                if (gesture === 'fist') scale = 0.1;
+                // 简单的动画效果
+                if (gesture === 'palm') scale = 3.0; // 放大
+                if (gesture === 'fist') scale = 0.0; // 收缩
 
                 positions[ix] += (ox * scale - positions[ix]) * 0.1;
                 positions[ix+1] += (oy * scale - positions[ix+1]) * 0.1;
