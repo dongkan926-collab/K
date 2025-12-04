@@ -3,85 +3,181 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>基础连通性测试</title>
+    <title>XR 安全模式</title>
     <style>
-        body { margin: 0; background: #000; color: #0f0; font-family: sans-serif; overflow: hidden; }
-        #info { position: absolute; top: 10px; left: 10px; z-index: 999; background: rgba(0,0,0,0.8); padding: 10px; }
-        button { padding: 15px 30px; font-size: 20px; background: #00ff00; border: none; margin-top: 10px; }
-    </style>
-    
-    <!-- 替换为更稳定的 CDN 源 -->
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
+        body { margin: 0; background-color: #000; color: white; font-family: sans-serif; }
+        /* 启动界面 */
+        #start-screen {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            background: #111; z-index: 10;
         }
+        button {
+            padding: 20px 50px; font-size: 24px; background: #00ff00; border: none; border-radius: 10px;
+        }
+    </style>
+    <!-- 使用 jsDelivr 加载 Three.js -->
+    <script type="importmap">
+        { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
     </script>
 </head>
 <body>
-    <div id="info">
-        <h1>连通性测试</h1>
-        <p>如果你能看到这个和后面的红方块，说明网页加载成功。</p>
-        <button id="ar-btn">进入 AR</button>
-    </div>
 
-    <script type="module">
-        import * as THREE from 'three';
+<!-- 只有在进入 AR 前能看到这个 -->
+<div id="start-screen">
+    <h1>防卡死安全版</h1>
+    <p>去掉了所有文字更新和悬浮层</p>
+    <button id="btn-enter">启动 AR</button>
+</div>
 
-        // 简单的错误捕获
-        window.onerror = function(msg, url, line) {
-            document.getElementById('info').innerHTML += `<br><span style="color:red">错误: ${msg}</span>`;
-        };
+<script type="module">
+    import * as THREE from 'three';
 
-        let camera, scene, renderer, mesh;
+    let camera, scene, renderer;
+    let hand1, hand2;
+    let particles, particleGeo;
+    let particleOriginalPos = [];
+    
+    // 为了不卡死，粒子数量减少到 600 (足够看清效果了)
+    const particleCount = 600;
+    
+    // 强制固定在面前的容器
+    let stage;
 
-        init();
-        animate();
+    document.getElementById('btn-enter').addEventListener('click', onEnter);
 
-        function init() {
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+    async function onEnter() {
+        if (!navigator.xr) return alert("不支持 XR");
+        
+        // 隐藏按钮
+        document.getElementById('start-screen').style.display = 'none';
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true; // 开启 WebXR
-            document.body.appendChild(renderer.domElement);
-
-            // 一个红色的旋转方块
-            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-            const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
-            mesh = new THREE.Mesh(geometry, material);
-            mesh.position.set(0, 0, -0.5); // 放在屏幕正前方
-            scene.add(mesh);
-
-            // 按钮事件
-            document.getElementById('ar-btn').addEventListener('click', onEnterAR);
-        }
-
-        async function onEnterAR() {
-            if (!navigator.xr) return alert("当前浏览器不支持 WebXR");
-            try {
-                const session = await navigator.xr.requestSession('immersive-ar', {
-                    optionalFeatures: ['dom-overlay'],
-                    domOverlay: { root: document.body }
-                });
-                renderer.xr.setSession(session);
-            } catch (e) {
-                alert("进入 AR 失败: " + e.message);
-            }
-        }
-
-        function animate() {
-            renderer.setAnimationLoop(() => {
-                if(mesh) {
-                    mesh.rotation.x += 0.01;
-                    mesh.rotation.y += 0.01;
-                }
-                renderer.render(scene, camera);
+        try {
+            // 注意：去掉了 optionalFeatures 里的 'dom-overlay'，这东西很容易导致崩溃
+            const session = await navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['local'], 
+                optionalFeatures: ['hand-tracking'] 
             });
+            initThree(session);
+        } catch (e) {
+            alert("启动失败: " + e.message);
+            // 如果失败，把按钮显示回来
+            document.getElementById('start-screen').style.display = 'flex';
         }
-    </script>
+    }
+
+    function initThree(session) {
+        scene = new THREE.Scene();
+        scene.background = null; // 透视背景
+
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio); 
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        renderer.xr.setReferenceSpaceType('local');
+        renderer.xr.setSession(session);
+        // 不再把 renderer 加到 body，防止冲突，WebXR 会自动处理输出
+
+        // --- 核心物体 ---
+        stage = new THREE.Group();
+        stage.position.set(0, 0, -0.5); // 放在正前方 0.5米
+        scene.add(stage);
+
+        // 1. 红色方块 (参照物)
+        const box = new THREE.Mesh(
+            new THREE.BoxGeometry(0.15, 0.15, 0.15),
+            new THREE.MeshBasicMaterial({ color: 0xff0000 })
+        );
+        box.position.set(0, 0.2, 0);
+        stage.add(box);
+
+        // 2. 粒子
+        createParticles();
+
+        // 3. 手部
+        hand1 = renderer.xr.getHand(0); scene.add(hand1);
+        hand2 = renderer.xr.getHand(1); scene.add(hand2);
+
+        // 开始循环
+        renderer.setAnimationLoop(render);
+    }
+
+    function createParticles() {
+        const geometry = new THREE.BufferGeometry();
+        const positions = [];
+        // 创建一个球形分布
+        for (let i = 0; i < particleCount; i++) {
+            const x = (Math.random() - 0.5) * 0.4;
+            const y = (Math.random() - 0.5) * 0.4;
+            const z = (Math.random() - 0.5) * 0.4;
+            positions.push(x, y, z);
+            particleOriginalPos.push({x, y, z});
+        }
+        geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        particleGeo = geometry;
+
+        const material = new THREE.PointsMaterial({
+            color: 0x00ffff,
+            size: 0.02, // 粒子大一点，容易看
+            blending: THREE.NormalBlending, // 不透明，防隐身
+            depthTest: false // 永远在最前
+        });
+
+        particles = new THREE.Points(geometry, material);
+        stage.add(particles);
+    }
+
+    function getHandGesture(hand) {
+        if (!hand || !hand.joints || !hand.joints['wrist'] || !hand.joints['middle-finger-tip']) return 'neutral';
+        const d = hand.joints['wrist'].position.distanceTo(hand.joints['middle-finger-tip'].position);
+        if (d < 0.08) return 'fist';
+        if (d > 0.12) return 'palm';
+        return 'neutral';
+    }
+
+    function render() {
+        // 让粒子旋转，证明没卡死
+        if (particles) particles.rotation.y += 0.01;
+
+        // 手势逻辑 (只做纯数学计算，不操作 DOM)
+        let gesture = 'neutral';
+        const g1 = getHandGesture(hand1);
+        const g2 = getHandGesture(hand2);
+        if (g1 !== 'neutral' && g1 !== 'none') gesture = g1;
+        else if (g2 !== 'neutral' && g2 !== 'none') gesture = g2;
+
+        // 粒子动画
+        if (particles) {
+            const positions = particleGeo.attributes.position.array;
+            
+            // 变色
+            if (gesture === 'palm') particles.material.color.setHex(0xffaa00);
+            else if (gesture === 'fist') particles.material.color.setHex(0xff0000);
+            else particles.material.color.setHex(0x00ffff);
+
+            // 变形
+            for(let i=0; i<particleCount; i++) {
+                const ix = i * 3;
+                const ox = particleOriginalPos[i].x;
+                const oy = particleOriginalPos[i].y;
+                const oz = particleOriginalPos[i].z;
+                
+                let scale = 1.0;
+                if (gesture === 'palm') scale = 2.5; // 爆炸
+                if (gesture === 'fist') scale = 0.0; // 消失
+
+                // 简单的平滑移动
+                positions[ix] += (ox * scale - positions[ix]) * 0.1;
+                positions[ix+1] += (oy * scale - positions[ix+1]) * 0.1;
+                positions[ix+2] += (oz * scale - positions[ix+2]) * 0.1;
+            }
+            particleGeo.attributes.position.needsUpdate = true;
+        }
+
+        renderer.render(scene, camera);
+    }
+</script>
 </body>
 </html>
