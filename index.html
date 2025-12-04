@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 螺旋丸 V33</title>
+    <title>XR 螺旋丸 V34</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
@@ -12,53 +12,43 @@
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             color: white; z-index: 999;
         }
-        h1 {
-            color: #00ffff; text-shadow: 0 0 15px #00ffff; 
-            letter-spacing: 2px; margin-bottom: 20px; font-weight: bold;
-        }
+        h1 { color: #00ffff; margin-bottom: 20px; letter-spacing: 2px; text-shadow: 0 0 10px #00ffff; }
         button {
-            padding: 18px 60px; font-size: 22px; border-radius: 50px; 
+            padding: 20px 60px; font-size: 24px; border-radius: 50px; 
             border: 2px solid #00ffff; background: rgba(0, 100, 200, 0.3); 
             color: #00ffff; font-weight: bold; cursor: pointer;
         }
         .guide { margin-top: 30px; color: #aaa; text-align: center; font-size: 14px; line-height: 2.0; }
-        b { color: #fff; }
     </style>
     <script type="importmap">
-        {
-            "imports": {
-                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
-            }
-        }
+        { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
     </script>
 </head>
 <body>
 
 <div id="launcher">
-    <h1>RASENGAN FINAL FIX</h1>
+    <h1>RASENGAN GEOMETRIC</h1>
     <button id="btn-enter">启动系统</button>
     <div class="guide">
-        👊 <b>握拳</b>：星海静止 (无抖动)<br>
-        🖐 <b>手成爪状</b>：完美实体球 (无杂点)<br>
-        👋 <b>手完全摊开</b>：重置释放<br>
-        (已找回手部线框显示)
+        👊 <b>握拳</b>：星云模式 (半径1.2米)<br>
+        🖐 <b>慢松开</b>：线性压缩 (观察粒子吸入)<br>
+        👌 <b>成爪</b>：致密球体 (半径3cm)<br>
+        (已启用几何硬锁，保证球体完美)
     </div>
 </div>
 
 <script type="module">
     import * as THREE from 'three';
-    import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
     let camera, scene, renderer;
     let hand1, hand2;
     let stage;
     let meshSystem, dummy = new THREE.Object3D();
     
-    // 引导球
+    // 调试球
     let guideSphere;
 
-    const PARTICLE_COUNT = 1000; 
+    const PARTICLE_COUNT = 1200; // 稍微增加一点密度
     
     const pos = new Float32Array(PARTICLE_COUNT * 3);
     const vel = new Float32Array(PARTICLE_COUNT * 3);
@@ -67,8 +57,8 @@
     const axis = new Float32Array(PARTICLE_COUNT * 3);
 
     const handsInfo = {
-        left: { active: false, targetPos: new THREE.Vector3(), fingerDist: 0.0, state: 'IDLE', model: null },
-        right: { active: false, model: null }
+        left: { active: false, targetPos: new THREE.Vector3(), fingerDist: 0.0, wrist: new THREE.Vector3() },
+        right: { active: false }
     };
 
     const clock = new THREE.Clock();
@@ -91,7 +81,7 @@
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 100);
 
-        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true });
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.xr.enabled = true;
@@ -112,27 +102,26 @@
             depthTest: false 
         });
         guideSphere = new THREE.Mesh(guideGeo, guideMat);
-        guideSphere.visible = false; 
         stage.add(guideSphere);
 
-        // --- 找回手部模型 ---
-        const handModelFactory = new XRHandModelFactory();
-        function setupHand(index) {
-            const hand = renderer.xr.getHand(index);
-            const model = handModelFactory.createHandModel(hand, "mesh");
-            hand.add(model);
-            scene.add(hand);
-            return { hand, model };
+        // 简易手部
+        function createHandDebug(color) {
+            const box = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.02, 0.06), new THREE.MeshBasicMaterial({ color: color, wireframe: true }));
+            box.visible = false;
+            stage.add(box);
+            return box;
         }
-        
-        const h1 = setupHand(0); hand1 = h1.hand; handsInfo.left.model = h1.model;
-        const h2 = setupHand(1); hand2 = h2.hand; handsInfo.right.model = h2.model;
+        handsInfo.left.viz = createHandDebug(0x00ff00);
+
+        hand1 = renderer.xr.getHand(0); 
+        hand2 = renderer.xr.getHand(1);
 
         createParticles();
         renderer.setAnimationLoop(render);
     }
 
     function createParticles() {
+        // 粒子 6mm
         const geometry = new THREE.IcosahedronGeometry(0.006, 0);
         const material = new THREE.MeshBasicMaterial({
             color: 0x88ccff,
@@ -143,12 +132,12 @@
         meshSystem.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         
         for(let i=0; i<PARTICLE_COUNT; i++) {
-            // 初始大范围分布 (1.5米)
-            const r = 0.5 + Math.random() * 1.5;
+            // 初始大范围分布
+            const r = 0.1 + Math.random() * 1.0;
             const theta = Math.random() * Math.PI * 2;
-            const y = (Math.random() - 0.5) * 1.5;
+            const y = (Math.random() - 0.5) * 1.0;
             const x = r * Math.cos(theta);
-            const z = r * Math.sin(theta) - 0.5;
+            const z = r * Math.sin(theta);
 
             pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
             originalPos[i*3] = x; originalPos[i*3+1] = y; originalPos[i*3+2] = z;
@@ -166,34 +155,14 @@
         stage.add(meshSystem);
     }
 
-    // 每一帧强制刷新手部材质：淡青色线框
-    function fixHandMaterial(handModel, colorHex) {
-        if (!handModel) return;
-        handModel.traverse((child) => {
-            if (child.isMesh) {
-                child.material = new THREE.MeshBasicMaterial({
-                    color: colorHex, 
-                    wireframe: true,
-                    transparent: true, 
-                    opacity: 0.5, // 半透明，不遮挡粒子
-                    depthTest: false // 永远可见
-                });
-            }
-        });
-    }
-
     function mapLinear(val, inMin, inMax, outMin, outMax) {
         return outMin + (outMax - outMin) * ((Math.max(inMin, Math.min(val, inMax)) - inMin) / (inMax - inMin));
     }
 
     function updateHandInfo() {
         handsInfo.left.active = false;
-        
-        // 修复手部显示
-        fixHandMaterial(handsInfo.left.model, 0x00ffff); // 左手青色
-        fixHandMaterial(handsInfo.right.model, 0xff00ff); // 右手紫色
+        handsInfo.left.viz.visible = false;
 
-        // 左手逻辑
         if (hand1.joints && hand1.joints['wrist'] && hand1.joints['middle-finger-metacarpal']) {
             if (hand1.joints['wrist'].position.length() !== 0) {
                 handsInfo.left.active = true;
@@ -201,9 +170,8 @@
                 const wrist = new THREE.Vector3(); hand1.joints['wrist'].getWorldPosition(wrist);
                 const midMeta = new THREE.Vector3(); hand1.joints['middle-finger-metacarpal'].getWorldPosition(midMeta);
                 
-                // 1. 定位掌心
-                const handDir = new THREE.Vector3().subVectors(midMeta, wrist);
-                const palmCenter = wrist.clone().add(handDir.multiplyScalar(0.8));
+                // 1. 掌心定位 (手腕 + 指根 中点)
+                const palmCenter = new THREE.Vector3().lerpVectors(wrist, midMeta, 0.5);
 
                 // 2. 法线计算
                 let normal = new THREE.Vector3(0, 1, 0); 
@@ -212,76 +180,69 @@
                     const pBase = new THREE.Vector3(); hand1.joints['pinky-finger-metacarpal'].getWorldPosition(pBase);
                     const v1 = new THREE.Vector3().subVectors(iBase, wrist);
                     const v2 = new THREE.Vector3().subVectors(pBase, wrist);
-                    normal.crossVectors(v2, v1).normalize(); // 根据之前的经验，v2 x v1 是对的
+                    // 假设左手 v2 x v1 朝手心
+                    normal.crossVectors(v2, v1).normalize();
                 }
 
-                // 3. 悬浮点 (手心 + 10cm)
-                const targetWorld = palmCenter.add(normal.multiplyScalar(0.10));
+                // 3. 悬浮点 (手心上方 8cm)
+                const targetWorld = palmCenter.add(normal.multiplyScalar(0.08));
                 handsInfo.left.targetPos.copy(stage.worldToLocal(targetWorld));
 
-                // 4. 手势距离检测
+                // 可视化手位置
+                handsInfo.left.viz.position.copy(stage.worldToLocal(wrist.clone()));
+                handsInfo.left.viz.visible = true;
+
+                // 4. 手势距离
                 if (hand1.joints['index-finger-tip']) {
                     const tip = new THREE.Vector3(); hand1.joints['index-finger-tip'].getWorldPosition(tip);
-                    const d = tip.distanceTo(wrist);
-                    handsInfo.left.fingerDist = d;
-
-                    // 阈值 (反转逻辑)：
-                    // d < 0.06 : 握拳 (Fist) -> 星海模式 (半径大)
-                    // d > 0.16 : 完全摊开 (Open) -> RESET (重置)
-                    // 中间: 爪状 -> 压缩螺旋丸
-                    if (d > 0.16) handsInfo.left.state = 'RESET';
-                    else handsInfo.left.state = 'ACTIVE';
+                    // 使用指尖到手腕的距离作为“开合度”
+                    handsInfo.left.fingerDist = tip.distanceTo(wrist);
                 }
             }
         }
     }
 
     function render() {
-        if (clock.getElapsedTime() < 2.0) { 
-            renderer.render(scene, camera);
-            return;
-        }
-
+        const time = clock.getElapsedTime();
         updateHandInfo();
         
-        let targetRadius = 1.0;
-        let rotSpeed = 0.5;
-        let pullStrength = 0.02;
+        let targetRadius = 1.2; // 默认大圈
         let isActive = false;
-        let isReset = false;
+        let opennessRatio = 0.0;
 
         if (handsInfo.left.active) {
-            if (handsInfo.left.state === 'RESET') {
-                // 完全摊开 -> 重置
-                isReset = true;
-                guideSphere.visible = false;
-            } else {
-                // 握拳 或 爪状 -> 激活
-                isActive = true;
-                
-                const d = handsInfo.left.fingerDist;
-                const clampedD = Math.min(d, 0.13); // 限制最大爪张开度
-                
-                // 线性插值：d 0.05(拳) -> 0.13(爪)
-                // 半径：1.5米 -> 0.025米
-                targetRadius = mapLinear(clampedD, 0.05, 0.13, 1.5, 0.025);
-                targetRadius = Math.max(0.025, targetRadius); // 最小 2.5cm
+            isActive = true;
+            
+            // --- 核心线性映射 ---
+            // d = 0.04 (拳头) -> 0.12 (爪子/摊开)
+            // 范围给宽一点，让变化过程更长
+            const d = handsInfo.left.fingerDist;
+            
+            // 归一化：0 = 握拳, 1 = 摊开
+            // 我们设定：握拳(0.05) -> 半径大(1.2m)
+            //           爪状(0.12) -> 半径小(0.03m)
+            //           注意：这里是反比关系
+            
+            opennessRatio = mapLinear(d, 0.05, 0.12, 0.0, 1.0);
+            
+            // 目标半径：线性插值
+            // 握拳时 r=1.2米, 摊开时 r=0.03米
+            targetRadius = mapLinear(opennessRatio, 0.0, 1.0, 1.2, 0.03);
+            
+            // 限制最小 3cm
+            targetRadius = Math.max(0.03, targetRadius);
 
-                // 越小转越快
-                rotSpeed = mapLinear(targetRadius, 0.025, 1.5, 10.0, 0.2);
-                
-                // 越小吸力越大
-                pullStrength = mapLinear(targetRadius, 0.025, 1.5, 0.05, 0.005);
-
-                // 更新引导球
-                guideSphere.visible = true;
-                guideSphere.position.copy(handsInfo.left.targetPos);
-                guideSphere.scale.setScalar(targetRadius);
-                const gColor = new THREE.Color(0x00aaff).lerp(new THREE.Color(0xffffff), 1.0 - (targetRadius/1.5));
-                guideSphere.material.color.copy(gColor);
-            }
+            // 更新引导球
+            guideSphere.visible = true;
+            guideSphere.position.copy(handsInfo.left.targetPos);
+            guideSphere.scale.setScalar(targetRadius);
+            
+            // 颜色：大球红 -> 小球绿
+            const gColor = new THREE.Color(0xff0000).lerp(new THREE.Color(0x00ff00), opennessRatio);
+            guideSphere.material.color.copy(gColor);
+            // 握拳时大球很淡，聚气时小球很实
+            guideSphere.material.opacity = mapLinear(opennessRatio, 0, 1, 0.05, 0.3);
         } else {
-            isReset = false; 
             guideSphere.visible = false;
         }
 
@@ -294,24 +255,8 @@
             let px = pos[ix], py = pos[ix+1], pz = pos[ix+2];
             let vx = vel[ix], vy = vel[ix+1], vz = vel[ix+2];
 
-            if (isReset) {
-                // --- 1. 重置 (Fix Jitter) ---
-                // 不使用物理，直接插值归位，绝对稳定
-                const ox = originalPos[ix], oy = originalPos[ix+1], oz = originalPos[ix+2];
-                
-                // 5% 的速度平滑复位
-                px += (ox - px) * 0.05;
-                py += (oy - py) * 0.05;
-                pz += (oz - pz) * 0.05;
-                
-                // 强制清空速度，防止抖动
-                vx = 0; vy = 0; vz = 0;
-                
-                meshSystem.setColorAt(i, cIdle);
-                dummy.scale.setScalar(1.0);
-
-            } else if (isActive) {
-                // === 2. 动态压缩 ===
+            if (isActive) {
+                // === 动态球体模式 ===
                 const target = handsInfo.left.targetPos;
                 const dx = px - target.x;
                 const dy = py - target.y;
@@ -320,72 +265,96 @@
                 let dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                 if (dist < 0.001) dist = 0.001;
 
-                if (dist > targetRadius) {
-                    // --- 外部吸入 (慢速) ---
-                    vx -= (dx / dist) * pullStrength;
-                    vy -= (dy / dist) * pullStrength;
-                    vz -= (dz / dist) * pullStrength;
-                    
-                    // 阻尼适中
-                    vx *= 0.92; vy *= 0.92; vz *= 0.92;
-                } else {
-                    // --- 内部旋转 ---
-                    vx *= 0.7; vy *= 0.7; vz *= 0.7; // 刹车
-                    
-                    const ax = axis[ix*3]; const ay = axis[ix*3+1]; const az = axis[ix*3+2];
-                    const rx = py * az - pz * ay;
-                    const ry = pz * ax - px * az;
-                    const rz = px * ay - py * ax;
-                    
-                    vx += rx * rotSpeed * 0.01;
-                    vy += ry * rotSpeed * 0.01;
-                    vz += rz * rotSpeed * 0.01;
+                // --- 1. 强力向心 ---
+                // 距离越远，吸力越小(防瞬移)；距离越近，吸力越大
+                let pullStrength = 0.05;
+                if (dist > targetRadius * 2.0) pullStrength = 0.02; // 远处慢吸
+                
+                vx -= (dx / dist) * pullStrength;
+                vy -= (dy / dist) * pullStrength;
+                vz -= (dz / dist) * pullStrength;
 
-                    // --- 核心修复：硬边界 (Fix Strays) ---
-                    // 如果粒子试图飞出边界，给一个巨大的反向推力，或者直接位置修正
-                    // 这里我们用“墙壁反弹”逻辑
-                    const push = 0.05; // 强斥力
-                    vx += (dx / dist) * push;
-                    vy += (dy / dist) * push;
-                    vz += (dz / dist) * push;
+                // --- 2. 旋转 (随半径变化) ---
+                // 半径越小，转速越快 (角动量)
+                // 大球(1.2m) -> 速度 0.2
+                // 小球(0.03m) -> 速度 5.0
+                const rotSpeed = mapLinear(targetRadius, 0.03, 1.2, 5.0, 0.2);
+                
+                // 绕随机轴旋转
+                const ax = axis[ix*3]; const ay = axis[ix*3+1]; const az = axis[ix*3+2];
+                // 叉乘
+                const rx = py * az - pz * ay;
+                const ry = pz * ax - px * az;
+                const rz = px * ay - py * ax;
+                
+                vx += rx * rotSpeed * 0.01;
+                vy += ry * rotSpeed * 0.01;
+                vz += rz * rotSpeed * 0.01;
+
+                // --- 3. 几何硬锁 (Hard Constraint) ---
+                // 这是保证球体“完美圆形”的关键
+                // 计算下一帧的预估位置
+                let nextPx = px + vx;
+                let nextPy = py + vy;
+                let nextPz = pz + vz;
+                
+                let nextDist = Math.sqrt(
+                    Math.pow(nextPx - target.x, 2) + 
+                    Math.pow(nextPy - target.y, 2) + 
+                    Math.pow(nextPz - target.z, 2)
+                );
+
+                // 如果预估位置跑出了目标半径，强制拉回边界
+                if (nextDist > targetRadius) {
+                    // 计算从圆心指向粒子的向量
+                    const dirX = (nextPx - target.x) / nextDist;
+                    const dirY = (nextPy - target.y) / nextDist;
+                    const dirZ = (nextPz - target.z) / nextDist;
+                    
+                    // 强制设置位置在球面上 (稍微有一点点随机抖动，显得自然)
+                    const clampR = targetRadius * (0.95 + Math.random() * 0.05);
+                    
+                    // 修改速度向量，让它反弹或者切向运动
+                    // 这里直接简单粗暴：修正位置，衰减径向速度
+                    px = target.x + dirX * clampR;
+                    py = target.y + dirY * clampR;
+                    pz = target.z + dirZ * clampR;
+                    
+                    // 径向速度归零，保留切向速度
+                    vx *= 0.5; vy *= 0.5; vz *= 0.5; 
+                } else {
+                    // 在内部，正常积分
+                    px = nextPx; py = nextPy; pz = nextPz;
+                    // 阻尼
+                    vx *= 0.9; vy *= 0.9; vz *= 0.9;
                 }
 
                 // 视觉
-                if (targetRadius < 0.1 && dist < targetRadius*1.5) meshSystem.setColorAt(i, cCore);
+                if (targetRadius < 0.1 && dist < targetRadius) meshSystem.setColorAt(i, cCore);
                 else meshSystem.setColorAt(i, cCharge);
 
-                // 粒子大小随球体缩放
-                const pScale = mapLinear(targetRadius, 0.03, 1.5, 0.6, 1.2);
+                // 粒子大小随球体大小变化
+                const pScale = mapLinear(targetRadius, 0.03, 1.2, 0.6, 1.5);
                 dummy.scale.setScalar(pScale);
 
             } else {
-                // === 3. 待机 ===
+                // === 待机模式 ===
                 const ox = originalPos[ix], oy = originalPos[ix+1], oz = originalPos[ix+2];
-                const floatY = Math.sin(clock.getElapsedTime() * 1.5 + phases[i]) * 0.05;
-                vx += (ox - px) * 0.01;
-                vy += (oy + floatY - py) * 0.01;
-                vz += (oz - pz) * 0.01;
+                const floatY = Math.sin(time * 1.5 + phases[i]) * 0.05;
+                
+                // 缓慢复位
+                vx += (ox - px) * 0.02;
+                vy += (oy + floatY - py) * 0.02;
+                vz += (oz - pz) * 0.02;
+                
                 vx *= 0.95; vy *= 0.95; vz *= 0.95;
+                px += vx; py += vy; pz += vz;
+
                 meshSystem.setColorAt(i, cIdle);
                 dummy.scale.setScalar(1.0);
             }
 
-            // 安全限速
-            const speedSq = vx*vx + vy*vy + vz*vz;
-            const maxS = mapLinear(isActive ? targetRadius : 1.0, 0.02, 1.5, 0.2, 0.05);
-            if (speedSq > maxS*maxS) {
-                const r = maxS / Math.sqrt(speedSq);
-                vx *= r; vy *= r; vz *= r;
-            }
-
-            px += vx; py += vy; pz += vz;
-
-            // 边界防飞
-            if (px*px+py*py+pz*pz > 25.0) {
-                px = originalPos[ix]; py = originalPos[ix+1]; pz = originalPos[ix+2];
-                vx=0; vy=0; vz=0;
-            }
-
+            // 更新位置数组
             pos[ix] = px; pos[ix+1] = py; pos[ix+2] = pz;
             vel[ix] = vx; vel[ix+1] = vy; vel[ix+2] = vz;
 
