@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>基础连通性测试</title>
+    <style>
+        body { margin: 0; background: #000; color: #0f0; font-family: sans-serif; overflow: hidden; }
+        #info { position: absolute; top: 10px; left: 10px; z-index: 999; background: rgba(0,0,0,0.8); padding: 10px; }
+        button { padding: 15px 30px; font-size: 20px; background: #00ff00; border: none; margin-top: 10px; }
+    </style>
+    
+    <!-- 替换为更稳定的 CDN 源 -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+</head>
+<body>
+    <div id="info">
+        <h1>连通性测试</h1>
+        <p>如果你能看到这个和后面的红方块，说明网页加载成功。</p>
+        <button id="ar-btn">进入 AR</button>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        // 简单的错误捕获
+        window.onerror = function(msg, url, line) {
+            document.getElementById('info').innerHTML += `<br><span style="color:red">错误: ${msg}</span>`;
+        };
+
+        let camera, scene, renderer, mesh;
+
+        init();
+        animate();
+
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true; // 开启 WebXR
+            document.body.appendChild(renderer.domElement);
+
+            // 一个红色的旋转方块
+            const geometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+            const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            mesh = new THREE.Mesh(geometry, material);
+            mesh.position.set(0, 0, -0.5); // 放在屏幕正前方
+            scene.add(mesh);
+
+            // 按钮事件
+            document.getElementById('ar-btn').addEventListener('click', onEnterAR);
+        }
+
+        async function onEnterAR() {
+            if (!navigator.xr) return alert("当前浏览器不支持 WebXR");
+            try {
+                const session = await navigator.xr.requestSession('immersive-ar', {
+                    optionalFeatures: ['dom-overlay'],
+                    domOverlay: { root: document.body }
+                });
+                renderer.xr.setSession(session);
+            } catch (e) {
+                alert("进入 AR 失败: " + e.message);
+            }
+        }
+
+        function animate() {
+            renderer.setAnimationLoop(() => {
+                if(mesh) {
+                    mesh.rotation.x += 0.01;
+                    mesh.rotation.y += 0.01;
+                }
+                renderer.render(scene, camera);
+            });
+        }
+    </script>
+</body>
+</html>
