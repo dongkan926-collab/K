@@ -3,12 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vegeta Scouter CN</title>
-    <!-- 1. 引入龙珠风格的中文字体 (站酷庆科黄油体) -->
+    <title>Vegeta Scouter Ultimate</title>
+    <!-- 引入龙珠风格字体 -->
     <link href="https://fonts.googleapis.com/css2?family=ZCOOL+QingKe+HuangYou&display=swap" rel="stylesheet">
     
     <style>
-        /* 全局应用该字体 */
         body { margin: 0; background: #000; overflow: hidden; font-family: 'ZCOOL QingKe HuangYou', sans-serif; }
         
         #launcher {
@@ -21,18 +20,19 @@
         button {
             padding: 15px 50px; font-size: 28px; 
             color: #000; background: #ffaa00; border: none; 
-            border-radius: 4px; cursor: pointer; margin-top: 30px;
-            box-shadow: 0 0 20px #ffaa00; 
+            border-radius: 2px; cursor: pointer; margin-top: 30px;
+            box-shadow: 0 0 25px #ff4400; 
             font-family: 'ZCOOL QingKe HuangYou', cursive; letter-spacing: 2px;
+            transition: transform 0.1s;
         }
+        button:active { transform: scale(0.95); }
 
         #hud-status {
             position: absolute; bottom: 10%; width: 100%; text-align: center;
             color: #ffaa00; font-size: 24px; pointer-events: none; 
-            text-shadow: 0 0 5px #ff0000; display: none; letter-spacing: 2px;
+            text-shadow: 0 0 5px #ff0000; display: none; letter-spacing: 3px;
         }
 
-        /* 隐藏元素，用于强制浏览器预加载字体，防止Canvas渲染时字体还没好 */
         .font-preload { opacity: 0; position: absolute; font-family: 'ZCOOL QingKe HuangYou', cursive; }
     </style>
     <script type="importmap">
@@ -46,20 +46,18 @@
 </head>
 <body>
 
-<!-- 字体预加载触发点 -->
 <div class="font-preload">战斗力探测仪极度危险警惕一般般</div>
 
 <div id="launcher">
-    <h1 style="text-shadow: 0 0 15px #ff0000; font-size: 50px; margin: 0;">赛亚人战斗力探测器</h1>
-    <p style="color: #fff; opacity: 0.8; font-size: 20px;">目标设定：贝吉塔</p>
-    <div style="border:1px solid #ff4400; padding:20px; background:rgba(20,0,0,0.8); margin-top:20px; font-size: 22px;">
-        <p>👉 <b>右手指向</b>：扫描目标</p>
-        <p>✊ <b>左手握拳</b>：重置系统</p>
+    <h1 style="text-shadow: 0 0 20px #ff0000; font-size: 48px; margin: 0; letter-spacing: 5px;">赛亚人探测器</h1>
+    <div style="border-left: 5px solid #ff4400; padding-left: 20px; margin-top: 20px;">
+        <p style="color: #fff; opacity: 0.9; font-size: 22px; margin: 5px 0;">目标：贝吉塔 (VEGETA)</p>
+        <p style="color: #ffaa00; font-size: 18px; margin: 5px 0;">系统版本：v3.0 动态锁定</p>
     </div>
-    <button id="btn-start">启动系统</button>
+    <button id="btn-start">启动 HUD</button>
 </div>
 
-<div id="hud-status">系统就绪</div>
+<div id="hud-status">等待目标...</div>
 
 <script type="module">
     import * as THREE from 'three';
@@ -69,25 +67,35 @@
     let handLeft, handRight;
     
     // 视觉对象
-    let aimCursor;      // 瞄准用的十字
-    let targetGroup;    // 锁定后的特效组 (框+指针)
-    let powerSprite;    // 战斗力UI
-    let laserPlane;     // 上下扫描的光
+    let aimCursor;
+    let targetGroup;    
+    let powerSprite;    
+    let laserPlane;     
     
     // 逻辑控制
     let hitTestSource = null;
     let hitTestSourceRequested = false;
     let isLocked = false;
     let scanInterval = null;
+    let animationStartTime = 0; // 动画开始时间
 
-    // UI 配色
-    const THEME_COLOR = "#ffaa00"; // 琥珀橙
-    const THEME_BG = "rgba(20, 0, 0, 0.85)"; // 深红黑
-    
-    // Canvas 初始化
+    // UI 配置
+    const THEME_COLOR = "#ffaa00"; 
+    const THEME_BG = "rgba(20, 0, 0, 0.85)"; 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
     canvas.width = 512; canvas.height = 256;
+
+    // --- 缓动函数 (让动画更有机械感) ---
+    // t: 0-1
+    function easeOutExpo(x) {
+        return x === 1 ? 1 : 1 - Math.pow(2, -10 * x);
+    }
+    function easeOutBack(x) {
+        const c1 = 1.70158;
+        const c3 = c1 + 1;
+        return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2);
+    }
 
     document.getElementById('btn-start').addEventListener('click', initAR);
 
@@ -120,7 +128,7 @@
         scene.add(light);
         scene.add(new THREE.AmbientLight(0x404040));
 
-        // 1. 十字瞄准光标 (Sprite)
+        // 十字准星
         const cursorTexture = createCursorTexture();
         const cursorMat = new THREE.SpriteMaterial({ map: cursorTexture, color: 0xffffff, transparent: true, opacity: 0.9 });
         aimCursor = new THREE.Sprite(cursorMat);
@@ -128,26 +136,20 @@
         aimCursor.visible = false;
         scene.add(aimCursor);
 
-        // 2. 锁定特效组
         createTargetVisuals();
-
-        // 3. 手势
         setupHands();
 
         renderer.setAnimationLoop(render);
     }
 
-    // 绘制十字贴图
     function createCursorTexture() {
         const cvs = document.createElement('canvas');
         cvs.width = 128; cvs.height = 128;
         const c = cvs.getContext('2d');
         c.strokeStyle = '#ffffff';
         c.lineWidth = 6;
-        // 十字
         c.beginPath(); c.moveTo(64, 20); c.lineTo(64, 108); c.stroke();
         c.beginPath(); c.moveTo(20, 64); c.lineTo(108, 64); c.stroke();
-        // 圆圈
         c.beginPath(); c.arc(64, 64, 40, 0, Math.PI*2); c.stroke();
         return new THREE.CanvasTexture(cvs);
     }
@@ -157,35 +159,37 @@
         targetGroup.visible = false;
         scene.add(targetGroup);
 
-        // A. 战术框 (L型角落)
+        // A. 战术框 (L型)
         const bracketGeo = new THREE.BufferGeometry();
         const s = 0.3; 
         const vertices = new Float32Array([
-            -s, s, 0,  -s+0.1, s, 0,  -s, s, 0,  -s, s-0.1, 0, // 左上
-             s, s, 0,   s-0.1, s, 0,   s, s, 0,   s, s-0.1, 0, // 右上
-            -s, -s, 0, -s+0.1, -s, 0, -s, -s, 0, -s, -s+0.1, 0, // 左下
-             s, -s, 0,  s-0.1, -s, 0,  s, -s, 0,  s, -s+0.1, 0  // 右下
+            -s, s, 0,  -s+0.1, s, 0,  -s, s, 0,  -s, s-0.1, 0,
+             s, s, 0,   s-0.1, s, 0,   s, s, 0,   s, s-0.1, 0,
+            -s, -s, 0, -s+0.1, -s, 0, -s, -s, 0, -s, -s+0.1, 0,
+             s, -s, 0,  s-0.1, -s, 0,  s, -s, 0,  s, -s+0.1, 0
         ]);
         bracketGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
-        const bracketMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2 });
+        const bracketMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2, transparent: true, opacity: 0 });
         const brackets = new THREE.LineSegments(bracketGeo, bracketMat);
+        brackets.name = "brackets";
         targetGroup.add(brackets);
 
         // B. 扫描激光
         const planeGeo = new THREE.PlaneGeometry(0.6, 0.02);
         const planeMat = new THREE.MeshBasicMaterial({ color: 0xff3300, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
         laserPlane = new THREE.Mesh(planeGeo, planeMat);
+        laserPlane.name = "laser";
         targetGroup.add(laserPlane);
 
         // C. 纯白指针 (左右)
         const ptrGeo = new THREE.ConeGeometry(0.05, 0.15, 4);
         const ptrMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); 
         const leftPtr = new THREE.Mesh(ptrGeo, ptrMat);
-        leftPtr.position.set(-0.5, 0, 0); leftPtr.rotation.z = -Math.PI / 2; leftPtr.name = "leftPtr";
+        leftPtr.rotation.z = -Math.PI / 2; leftPtr.name = "leftPtr";
         targetGroup.add(leftPtr);
 
         const rightPtr = new THREE.Mesh(ptrGeo, ptrMat);
-        rightPtr.position.set(0.5, 0, 0); rightPtr.rotation.z = Math.PI / 2; rightPtr.name = "rightPtr";
+        rightPtr.rotation.z = Math.PI / 2; rightPtr.name = "rightPtr";
         targetGroup.add(rightPtr);
     }
 
@@ -210,12 +214,12 @@
         handRight = buildHand(1);
     }
 
-    // --- 中文 UI 绘制核心逻辑 ---
     function updateCanvasUI(powerValue, isFinal) {
-        // 清除画布
         ctx.clearRect(0, 0, 512, 256);
 
-        // 1. 背景 (切角设计)
+        // 动态展开效果
+        ctx.globalAlpha = 1.0;
+
         ctx.fillStyle = THEME_BG;
         ctx.beginPath();
         ctx.moveTo(0, 0); ctx.lineTo(480, 0); ctx.lineTo(512, 32); 
@@ -223,20 +227,18 @@
         ctx.closePath();
         ctx.fill();
 
-        // 2. 边框颜色逻辑
-        let borderColor = "#ffaa00"; // 默认橙
+        let borderColor = "#ffaa00"; 
         let dangerText = "正在分析...";
         
-        // 只有出结果时才判定等级
         if (isFinal) {
             if (powerValue < 9000) {
-                borderColor = "#ffffff"; // 白色
+                borderColor = "#ffffff"; 
                 dangerText = "一般般";
             } else if (powerValue >= 9000 && powerValue <= 18000) {
-                borderColor = "#ffaa00"; // 橙色
+                borderColor = "#ffaa00"; 
                 dangerText = "警惕！";
             } else {
-                borderColor = "#ff0000"; // 红色
+                borderColor = "#ff0000"; 
                 dangerText = "极度危险";
             }
         }
@@ -245,86 +247,71 @@
         ctx.lineWidth = 6;
         ctx.stroke();
 
-        // 3. 装饰线
         ctx.strokeStyle = "rgba(255, 100, 0, 0.3)";
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(20, 60); ctx.lineTo(492, 60); ctx.stroke();
         
-        // 4. 数值绘制
-        ctx.font = "110px 'ZCOOL QingKe HuangYou'"; // 使用龙珠风格字体
+        ctx.font = "110px 'ZCOOL QingKe HuangYou'";
         ctx.textAlign = "center";
         ctx.shadowBlur = 15;
         ctx.shadowColor = borderColor;
         ctx.fillStyle = isFinal ? "#fff" : THEME_COLOR;
         ctx.fillText(powerValue, 256, 170);
 
-        // 5. 左上角标题: 战斗力探测仪
         ctx.font = "32px 'ZCOOL QingKe HuangYou'";
         ctx.fillStyle = "#ffaa00";
         ctx.shadowBlur = 0;
         ctx.textAlign = "left";
         ctx.fillText("战斗力探测仪", 25, 45);
 
-        // 6. 右上角: 危险等级 (动态变化)
         ctx.textAlign = "right";
-        ctx.fillStyle = borderColor; // 跟随危险等级变色
+        ctx.fillStyle = borderColor; 
         ctx.fillText(dangerText, 485, 45);
 
-        // 7. 底部状态 (保留原逻辑但汉化)
         ctx.textAlign = "center";
         ctx.fillStyle = "#ffffff";
         ctx.font = "28px 'ZCOOL QingKe HuangYou'";
-        const statusText = isFinal ? "目标已锁定" : "正在读取数据...";
+        const statusText = isFinal ? "目标已锁定" : "数据读取中...";
         ctx.fillText(statusText, 256, 225);
     }
 
-    // --- 交互逻辑 ---
     function triggerScan(position) {
         if (isLocked) return;
         isLocked = true;
         aimCursor.visible = false;
+        animationStartTime = Date.now(); // 记录动画开始时间
 
-        // 战术框位置
         targetGroup.position.copy(position);
         targetGroup.lookAt(camera.position); 
         targetGroup.visible = true;
 
-        // UI 位置 (贝吉塔头顶)
+        // UI 位置
         const uiPos = position.clone().add(new THREE.Vector3(0, 0.65, 0));
 
         if (powerSprite) scene.remove(powerSprite);
         const texture = new THREE.CanvasTexture(canvas);
-        const mat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+        const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0 }); // 初始透明
         powerSprite = new THREE.Sprite(mat);
-        powerSprite.scale.set(1.0, 0.5, 1);
         powerSprite.position.copy(uiPos);
+        powerSprite.scale.set(0, 0, 0); // 初始大小为0
         scene.add(powerSprite);
 
-        // 动画流程
         let steps = 0;
-        // 设定贝吉塔战斗力: 18000 ~ 24000
         const targetVal = 18000 + Math.floor(Math.random() * 6000); 
 
         scanInterval = setInterval(() => {
             steps++;
-            // 随机跳动
             const rnd = Math.floor(Math.random() * 25000);
             updateCanvasUI(rnd, false);
             texture.needsUpdate = true;
 
-            // 激光动画
-            if (targetGroup.visible) {
-                laserPlane.position.y = Math.sin(steps * 0.5) * 0.25;
-            }
-
-            if (steps > 40) { // 2秒
+            if (steps > 40) { 
                 clearInterval(scanInterval);
                 updateCanvasUI(targetVal, true);
                 texture.needsUpdate = true;
                 
-                // 战术框变色
                 if (targetVal > 18000) {
-                    targetGroup.children[0].material.color.setHex(0xff0000); // 极度危险变红
+                    targetGroup.children[0].material.color.setHex(0xff0000); 
                 } else if (targetVal > 9000) {
                     targetGroup.children[0].material.color.setHex(0xffaa00);
                 }
@@ -336,21 +323,19 @@
         isLocked = false;
         clearInterval(scanInterval);
         targetGroup.visible = false;
-        targetGroup.children[0].material.color.setHex(0xffffff); // 恢复白色
+        targetGroup.children[0].material.color.setHex(0xffffff); 
         if (powerSprite) {
             scene.remove(powerSprite);
             powerSprite = null;
         }
-        document.getElementById('hud-status').innerText = "等待指令...";
+        document.getElementById('hud-status').innerText = "系统重置完成";
     }
 
-    // --- 姿势判定 ---
     function isPointing(hand) {
         if (!hand || !hand.joints || !hand.joints['wrist']) return false;
         const wrist = hand.joints['wrist'].position;
         const indexTip = hand.joints['index-finger-tip'].position;
         const middleTip = hand.joints['middle-finger-tip'].position;
-        // 食指远，中指近
         return wrist.distanceTo(indexTip) > 0.10 && wrist.distanceTo(middleTip) < 0.10;
     }
 
@@ -361,12 +346,12 @@
         return wrist.distanceTo(indexTip) < 0.09;
     }
 
-    // --- 渲染循环 ---
     function render(timestamp, frame) {
         if (frame) {
             const refSpace = renderer.xr.getReferenceSpace();
             const session = renderer.xr.getSession();
 
+            // Hit Test
             if (!hitTestSourceRequested) {
                 session.requestReferenceSpace('viewer').then(ref => {
                     session.requestHitTestSource({ space: ref }).then(source => hitTestSource = source);
@@ -385,6 +370,7 @@
                 }
             }
 
+            // 交互
             if (!isLocked && aimCursor.visible && isPointing(handRight)) {
                 triggerScan(aimCursor.position);
             }
@@ -392,15 +378,45 @@
                 resetSystem();
             }
 
-            // 待机动画：指针浮动
+            // --- 核心动效逻辑 ---
             if (isLocked && targetGroup.visible) {
-                const t = timestamp / 500;
-                const left = targetGroup.getObjectByName("leftPtr");
-                const right = targetGroup.getObjectByName("rightPtr");
-                if(left && right) {
-                    const offset = 0.5 + Math.sin(t) * 0.05;
-                    left.position.x = -offset;
-                    right.position.x = offset;
+                const time = Date.now();
+                const progress = Math.min((time - animationStartTime) / 600, 1.0); // 0.6秒动画时长
+                
+                // 1. 战术框 (汇聚效果)
+                const brackets = targetGroup.getObjectByName("brackets");
+                // 从 2.5倍大小缩小到 1.0
+                const scale = 2.5 - 1.5 * easeOutExpo(progress); 
+                brackets.scale.set(scale, scale, scale);
+                // 透明度渐变
+                brackets.material.opacity = progress;
+
+                // 2. 指针 (从远处飞入)
+                const leftPtr = targetGroup.getObjectByName("leftPtr");
+                const rightPtr = targetGroup.getObjectByName("rightPtr");
+                // 从 ±1.5 飞到 ±0.5
+                const flyDist = 1.5 - 1.0 * easeOutExpo(progress);
+                leftPtr.position.x = -flyDist;
+                rightPtr.position.x = flyDist;
+
+                // 3. UI 面板 (全息展开)
+                if (powerSprite) {
+                    // 使用 Back 缓动函数，带点弹性的放大
+                    const uiScale = easeOutBack(progress);
+                    // 最终大小是 (1.0, 0.5, 1)
+                    powerSprite.scale.set(1.0 * uiScale, 0.5 * uiScale, 1);
+                    powerSprite.material.opacity = progress;
+                }
+
+                // 4. 激光待机动画
+                const t = timestamp / 1000;
+                const laser = targetGroup.getObjectByName("laser");
+                laser.position.y = Math.sin(t * 3) * 0.25; // 快速上下扫描
+                
+                // 待机时的轻微浮动 (仅在入场动画结束后生效)
+                if (progress === 1.0) {
+                    leftPtr.position.x = -0.5 - Math.sin(t * 2) * 0.02; // 指针呼吸
+                    rightPtr.position.x = 0.5 + Math.sin(t * 2) * 0.02;
                 }
             }
         }
