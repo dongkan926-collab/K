@@ -3,495 +3,185 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>WebAR 手势粒子系统</title>
+    <title>Galaxy XR 粒子控制</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
-        /* 视频元素隐藏，我们通过纹理渲染或者直接覆盖 */
-        #input_video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; transform: scaleX(-1); /* 镜像翻转 */ opacity: 0; } 
-        /* ThreeJS Canvas */
-        #output_canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
-        #loading {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: #00ffcc; font-family: monospace; font-size: 20px; z-index: 10;
-            text-align: center;
-        }
         #info {
-            position: absolute; bottom: 20px; left: 0; width: 100%;
-            text-align: center; color: white; font-family: sans-serif;
-            text-shadow: 1px 1px 2px black; pointer-events: none; z-index: 5;
-            font-size: 14px; opacity: 0.8;
+            position: absolute; bottom: 20px; width: 100%; text-align: center;
+            color: #00ffcc; font-family: monospace; font-size: 16px;
+            pointer-events: none; z-index: 10; text-shadow: 0 0 5px #000;
         }
     </style>
 </head>
 <body>
-    <div id="loading">正在加载视觉模型...<br>请允许摄像头权限</div>
-    <div id="info">仅识别左手 | 握拳:扩散 | 爪子:篮球 | 张开:网球</div>
-    
-    <video id="input_video" playsinline autoplay muted></video>
-    <canvas id="output_canvas"></canvas>
+    <div id="info">正在等待 AR 会话...<br>请点击下方按钮进入 XR 模式</div>
 
-    <!-- 引入 Three.js -->
     <script type="importmap">
         {
             "imports": {
                 "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-                "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3"
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
             }
         }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
-        import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
+        import { ARButton } from 'three/addons/webxr/ARButton.js';
 
-        const video = document.getElementById('input_video');
-        const canvasElement = document.getElementById('output_canvas');
-        const loading = document.getElementById('loading');
-
-        // Three.js 变量
+        let container;
         let camera, scene, renderer;
+        
+        // 粒子相关
         let particleSystem;
-        const PARTICLE_COUNT = 2500;
+        const PARTICLE_COUNT = 3000;
         let particlesData = [];
         
-        // 手部可视化
-        let handGroup;
-        let handJoints = [];
-        let handBones = [];
-
-        // 逻辑变量
-        let handLandmarker = undefined;
-        let lastVideoTime = -1;
-        
-        // 目标状态
-        let targetCenter = new THREE.Vector3(0, 0, -0.5); // 默认前方
-        let targetRadius = 0.5; // 目标球半径
-        let isGathering = false; // 是否聚集
-        let isLeftHandDetected = false;
-
-        // 状态枚举
+        // 交互状态
         const STATE = {
-            DIFFUSE: 0,
-            BASKETBALL: 1, // 爪子
-            TENNIS: 2      // 张开
+            DIFFUSE: 0,    // 握拳: 扩散
+            BASKETBALL: 1, // 爪子: 篮球 (半径大)
+            TENNIS: 2      // 张开: 网球 (半径小)
         };
         let currentState = STATE.DIFFUSE;
+        let targetCenter = new THREE.Vector3(0, 0, -0.5);
+        let targetRadius = 0.5;
+        let isGathering = false;
+        
+        // 手部可视化资源
+        let handVisualGroup;
+        const jointsMesh = [];
+        const bonesLines = [];
+        const JOINT_COUNT = 25; // WebXR通常有25个关节
+        
+        // 骨骼连接索引 (WebXR 标准)
+        const boneConnections = [
+            [0,1],[1,2],[2,3],[3,4],          // 拇指
+            [0,5],[5,6],[6,7],[7,8],          // 食指
+            [0,9],[9,10],[10,11],[11,12],     // 中指
+            [0,13],[13,14],[14,15],[15,16],   // 无名指
+            [0,17],[17,18],[18,19],[19,20]    // 小指
+        ];
 
-        // 初始化
         init();
+        animate();
 
-        async function init() {
-            // 1. 初始化 MediaPipe
-            await createHandLandmarker();
+        function init() {
+            container = document.createElement('div');
+            document.body.appendChild(container);
 
-            // 2. 初始化摄像头
-            await startWebcam();
-
-            // 3. 初始化 Three.js
-            initThree();
-
-            // 4. 开始循环
-            renderLoop();
-        }
-
-        async function createHandLandmarker() {
-            const vision = await FilesetResolver.forVisionTasks(
-                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm"
-            );
-            handLandmarker = await HandLandmarker.createFromOptions(vision, {
-                baseOptions: {
-                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`,
-                    delegate: "GPU"
-                },
-                runningMode: "VIDEO",
-                numHands: 2
-            });
-            loading.style.display = "none";
-        }
-
-        async function startWebcam() {
-            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-                const constraints = {
-                    video: {
-                        facingMode: "environment", // 尝试使用后置摄像头(AR模式)，如果是自拍模式改为 "user"
-                        width: { ideal: 1280 },
-                        height: { ideal: 720 }
-                    }
-                };
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                    video.srcObject = stream;
-                    return new Promise(resolve => {
-                        video.onloadedmetadata = () => {
-                            video.play();
-                            resolve();
-                        };
-                    });
-                } catch (error) {
-                    console.error("Camera error:", error);
-                    loading.innerHTML = "摄像头启动失败";
-                }
-            }
-        }
-
-        function initThree() {
             scene = new THREE.Scene();
+            
+            // 摄像机
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
 
-            // 背景：使用视频纹理实现 AR 透视效果
-            const videoTexture = new THREE.VideoTexture(video);
-            videoTexture.colorSpace = THREE.SRGBColorSpace;
-            scene.background = videoTexture;
-
-            // 摄像机：根据视频比例调整 FOV
-            const aspect = window.innerWidth / window.innerHeight;
-            camera = new THREE.PerspectiveCamera(60, aspect, 0.1, 100);
-            camera.position.set(0, 0, 0); // 位于原点
-
-            renderer = new THREE.WebGLRenderer({ canvas: canvasElement, antialias: true, alpha: true });
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true; // 开启 WebXR
+            
+            // 重要：设置参考空间为 local-floor 或 local，保证手势坐标准确
+            renderer.xr.setReferenceSpaceType('local'); 
+            
+            container.appendChild(renderer.domElement);
+
+            // WebXR 按钮 - 必须请求 hand-tracking
+            const sessionInit = { 
+                requiredFeatures: ['hand-tracking'], 
+                optionalFeatures: ['dom-overlay'],
+                domOverlay: { root: document.body } 
+            };
+            document.body.appendChild(ARButton.createButton(renderer, sessionInit));
 
             // 灯光
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-            scene.add(ambientLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-            dirLight.position.set(0, 2, 2);
-            scene.add(dirLight);
+            const light = new THREE.DirectionalLight(0xffffff, 1.5);
+            light.position.set(0, 2, 0);
+            scene.add(light);
 
-            // 创建手部可视化对象 (简洁的科技风格)
-            createHandVisuals();
-
-            // 创建粒子系统
-            createParticles();
+            // 初始化粒子
+            initParticles();
+            
+            // 初始化手部可视化结构 (自定义酷炫风格)
+            initHandVisuals();
 
             window.addEventListener('resize', onWindowResize);
         }
 
-        function createHandVisuals() {
-            handGroup = new THREE.Group();
-            scene.add(handGroup);
+        function initHandVisuals() {
+            handVisualGroup = new THREE.Group();
+            scene.add(handVisualGroup);
 
-            // 关节 (21个点) - 简洁的发光小球
-            const jointGeo = new THREE.IcosahedronGeometry(0.008, 1);
+            // 关节：发光小球
+            const jointGeo = new THREE.IcosahedronGeometry(0.006, 1);
             const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // 青色
-            
-            for (let i = 0; i < 21; i++) {
+
+            for(let i=0; i<JOINT_COUNT; i++) {
                 const mesh = new THREE.Mesh(jointGeo, jointMat);
-                handJoints.push(mesh);
-                handGroup.add(mesh);
+                mesh.visible = false;
+                jointsMesh.push(mesh);
+                handVisualGroup.add(mesh);
             }
 
-            // 骨骼连线 - 使用 LineSegments
-            // 手部骨骼索引连接关系
-            const connections = [
-                [0,1],[1,2],[2,3],[3,4], // 拇指
-                [0,5],[5,6],[6,7],[7,8], // 食指
-                [0,9],[9,10],[10,11],[11,12], // 中指
-                [0,13],[13,14],[14,15],[15,16], // 无名指
-                [0,17],[17,18],[18,19],[19,20], // 小指
-                [5,9],[9,13],[13,17] // 手掌横向
-            ];
-
-            const material = new THREE.LineBasicMaterial({ color: 0x0088ff, transparent: true, opacity: 0.6 });
+            // 连线：半透明线条
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x0088ff, transparent: true, opacity: 0.6 });
             
-            // 为每根骨头创建 Line
-            connections.forEach(pair => {
+            boneConnections.forEach(pair => {
                 const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-                const line = new THREE.Line(geometry, material);
+                const line = new THREE.Line(geometry, lineMat);
                 line.userData = { start: pair[0], end: pair[1] };
-                handBones.push(line);
-                handGroup.add(line);
+                line.visible = false;
+                bonesLines.push(line);
+                handVisualGroup.add(line);
             });
-            
-            handGroup.visible = false;
         }
 
-        function createParticles() {
+        function initParticles() {
             const geometry = new THREE.BufferGeometry();
             const positions = [];
             const colors = [];
             const color = new THREE.Color();
 
             for (let i = 0; i < PARTICLE_COUNT; i++) {
-                // 初始分布在前方
-                positions.push((Math.random()-0.5)*2, (Math.random()-0.5)*1 + 1.5, -2 + (Math.random()-0.5));
-                
-                // 橙色到紫色渐变
-                color.setHSL(Math.random() * 0.1 + 0.6, 0.9, 0.6);
+                const x = (Math.random() - 0.5) * 2;
+                const y = (Math.random() - 0.5) * 2 + 1.5;
+                const z = (Math.random() - 0.5) * 2 - 1;
+                positions.push(x, y, z);
+
+                // 橙色到紫色
+                color.setHSL(Math.random() * 0.15 + 0.6, 1.0, 0.6);
                 colors.push(color.r, color.g, color.b);
 
-                particlesData.push({
-                    velocity: new THREE.Vector3(0,0,0),
-                    phase: Math.random() * Math.PI * 2
-                });
+                particlesData.push({ velocity: new THREE.Vector3() });
             }
 
             geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
+            // 创建圆形发光纹理
+            const canvas = document.createElement('canvas');
+            canvas.width = 32; canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+            const grad = ctx.createRadialGradient(16,16,0,16,16,16);
+            grad.addColorStop(0, 'rgba(255,255,255,1)');
+            grad.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+            grad.addColorStop(1, 'rgba(0,0,0,0)');
+            ctx.fillStyle = grad; ctx.fillRect(0,0,32,32);
+            const texture = new THREE.Texture(canvas);
+            texture.needsUpdate = true;
+
             const material = new THREE.PointsMaterial({
-                size: 0.015,
+                size: 0.01,
                 vertexColors: true,
-                map: createCircleTexture(), // 使用圆形纹理让粒子更好看
-                alphaTest: 0.5,
+                map: texture,
                 transparent: true,
-                opacity: 0.9,
-                blending: THREE.AdditiveBlending
+                opacity: 0.8,
+                blending: THREE.AdditiveBlending,
+                depthWrite: false
             });
 
             particleSystem = new THREE.Points(geometry, material);
             scene.add(particleSystem);
-        }
-
-        function createCircleTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 32;
-            canvas.height = 32;
-            const context = canvas.getContext('2d');
-            const gradient = context.createRadialGradient(16, 16, 0, 16, 16, 16);
-            gradient.addColorStop(0, 'rgba(255,255,255,1)');
-            gradient.addColorStop(0.2, 'rgba(255,255,255,0.8)');
-            gradient.addColorStop(0.5, 'rgba(255,255,255,0.2)');
-            gradient.addColorStop(1, 'rgba(0,0,0,0)');
-            context.fillStyle = gradient;
-            context.fillRect(0,0,32,32);
-            const texture = new THREE.Texture(canvas);
-            texture.needsUpdate = true;
-            return texture;
-        }
-
-        // --- 核心逻辑循环 ---
-        function renderLoop() {
-            // MediaPipe 检测
-            if (handLandmarker && video.currentTime !== lastVideoTime) {
-                lastVideoTime = video.currentTime;
-                const result = handLandmarker.detectForVideo(video, performance.now());
-                processHandData(result);
-            }
-
-            // 更新粒子
-            updateParticles();
-
-            renderer.render(scene, camera);
-            requestAnimationFrame(renderLoop);
-        }
-
-        function processHandData(result) {
-            isLeftHandDetected = false;
-            handGroup.visible = false;
-
-            if (result.landmarks.length > 0) {
-                // 遍历检测到的手
-                for (let i = 0; i < result.handednesses.length; i++) {
-                    const handedness = result.handednesses[i][0].categoryName;
-                    
-                    // 注意：MediaPipe 使用自拍模式时 Left/Right 是镜像的。
-                    // 假设使用后置摄像头，Left 就是 Left。如果是前置，可能需要反转。
-                    // 这里我们严格匹配 "Left"。
-                    if (handedness === "Left") {
-                        isLeftHandDetected = true;
-                        handGroup.visible = true; // 显示左手视觉效果
-                        
-                        const landmarks = result.landmarks[i];
-                        updateHandVisuals(landmarks);
-                        analyzeGesture(landmarks);
-                        break; // 只处理第一只左手
-                    }
-                }
-            }
-
-            if (!isLeftHandDetected) {
-                // 如果左手丢失，保持在扩散状态
-                currentState = STATE.DIFFUSE;
-                isGathering = false;
-            }
-        }
-
-        // 将 MediaPipe 的 2D/3D 坐标转换为 Three.js 世界坐标
-        // 这是一个简化的映射，为了让 AR 效果对齐，我们将 landmarks 投射到摄像机前方的平面上
-        function updateHandVisuals(landmarks) {
-            const zDepth = -0.5; // 手在屏幕前方 0.5 米处渲染
-            
-            // 简单的屏幕坐标映射 (Video尺寸 -> Screen尺寸 -> World坐标)
-            // MediaPipe 输出 x,y 在 [0,1]。 y向下为正。
-            
-            // 计算手掌中心 (索引 0, 5, 17 的中心) 用于粒子跟随
-            const palmPos = new THREE.Vector3();
-            let wristPos = new THREE.Vector3();
-
-            landmarks.forEach((point, index) => {
-                // 转换坐标: (x-0.5)*scale, -(y-0.5)*scale
-                // 假设在 z = -0.5 的平面，视锥体宽度约为 aspect * z * tan(fov/2) * 2
-                // 简单估算：
-                const fov = camera.fov * Math.PI / 180;
-                const scaleY = 2 * Math.tan(fov / 2) * Math.abs(zDepth);
-                const scaleX = scaleY * camera.aspect;
-
-                // 镜像修正：x 轴翻转，因为我们可能看的是自拍镜像或需要翻转
-                // 如果是后置摄像头，x 可能不需要翻转。试一试：
-                const x = (point.x - 0.5) * scaleX * -1; // -1 翻转适应 AR 感觉
-                const y = -(point.y - 0.5) * scaleY;
-                const z = zDepth; // 这里简化深度，使用固定平面
-
-                // 更新关节 Mesh
-                if (handJoints[index]) {
-                    handJoints[index].position.set(x, y, z);
-                }
-
-                // 记录关键点位置
-                if (index === 0) wristPos.set(x,y,z);
-            });
-
-            // 更新骨骼连线
-            handBones.forEach(line => {
-                const startPos = handJoints[line.userData.start].position;
-                const endPos = handJoints[line.userData.end].position;
-                
-                const positions = line.geometry.attributes.position.array;
-                positions[0] = startPos.x; positions[1] = startPos.y; positions[2] = startPos.z;
-                positions[3] = endPos.x; positions[4] = endPos.y; positions[5] = endPos.z;
-                line.geometry.attributes.position.needsUpdate = true;
-            });
-
-            // 计算手心位置 (Roughly between wrist(0) and middle finger mcp(9))
-            palmPos.copy(wristPos).lerp(handJoints[9].position, 0.5);
-            
-            // 更新粒子目标中心：手心上方 5cm (Y轴 + 0.05)
-            targetCenter.copy(palmPos).add(new THREE.Vector3(0, 0.05, 0));
-        }
-
-        function analyzeGesture(landmarks) {
-            // 简单几何算法判断手势
-            
-            // 1. 握拳判定 (Fist)
-            // 检查指尖(Tip)是否靠近指根(MCP)
-            // 索引: 8(食指尖), 5(食指根) ...
-            const tips = [8, 12, 16, 20];
-            const mcps = [5, 9, 13, 17];
-            
-            let curledCount = 0;
-            for(let i=0; i<4; i++) {
-                // 计算距离（使用原始归一化数据更准）
-                const dTip = dist(landmarks[tips[i]], landmarks[0]); // 指尖到手腕
-                const dMcp = dist(landmarks[mcps[i]], landmarks[0]); // 指根到手腕
-                // 如果指尖距离手腕 比 指根距离手腕 还近，或者非常接近，说明弯曲了
-                if (dTip < dMcp * 1.2) curledCount++;
-            }
-            
-            // 拇指判断
-            const thumbTip = landmarks[4];
-            const thumbIp = landmarks[3];
-            const pinkyMcp = landmarks[17];
-            // 拇指尖靠近小指根 -> 握拳
-            if (dist(thumbTip, pinkyMcp) < 0.15) curledCount++;
-
-            // 状态机
-            if (curledCount >= 4) {
-                // === 握拳 (Fist) ===
-                currentState = STATE.DIFFUSE;
-                isGathering = false;
-            } else {
-                // 如果不是握拳，那就是张开或爪子
-                // 区分爪子(Claw) 和 张开(Tennis)
-                // 判据：手指虽然伸出，但是否有弯曲？
-                // 爪子：指尖和指根的距离虽然远，但比完全伸直短。
-                // 我们可以检测 "弯曲度"：(Wrist->MCP + MCP->PIP + PIP->Tip) / (Wrist->Tip)
-                // 或者更简单：平均指尖到手腕的距离。
-                
-                let totalTipDist = 0;
-                tips.forEach(idx => totalTipDist += dist(landmarks[idx], landmarks[0]));
-                const avgDist = totalTipDist / 4;
-
-                // 经验值：完全张开 avgDist 约 0.3-0.4，爪子约 0.2-0.25 (基于 MediaPipe 坐标系)
-                // 根据实际调试，0.25 是个不错的分界线
-                // 但 MediaPipe 坐标随手与摄像头距离变化。
-                
-                // 更好的判据：观察手指关节角度。
-                // 简化版：看食指的 PIP(6) 角度。
-                // 向量 5->6 和 6->7 的点积。
-                // 简单起见：如果所有手指都比较直 -> 网球(张开)；如果有明显弯曲但没握拳 -> 篮球(爪子)
-                
-                if (avgDist > 0.35) { // 这个阈值可能需要根据手的大小微调，这里假设手比较靠近摄像头
-                     // === 完全张开 (Tennis) ===
-                     currentState = STATE.TENNIS;
-                     isGathering = true;
-                     targetRadius = 0.035; // 3.5cm 半径 (网球大小)
-                } else {
-                     // === 爪子/半张 (Basketball) ===
-                     currentState = STATE.BASKETBALL;
-                     isGathering = true;
-                     targetRadius = 0.12; // 12cm 半径 (篮球大小)
-                }
-            }
-        }
-
-        function dist(p1, p2) {
-            return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2) + Math.pow(p1.z - p2.z, 2));
-        }
-
-        function updateParticles() {
-            const positions = particleSystem.geometry.attributes.position.array;
-            
-            // 扩散参数
-            let moveSpeed = 0.1; 
-            
-            if (currentState === STATE.DIFFUSE) {
-                moveSpeed = 0.02;
-            }
-
-            for (let i = 0; i < PARTICLE_COUNT; i++) {
-                const i3 = i * 3;
-                let px = positions[i3];
-                let py = positions[i3+1];
-                let pz = positions[i3+2];
-                let currentPos = new THREE.Vector3(px, py, pz);
-
-                if (isGathering && isLeftHandDetected) {
-                    // 聚集模式：球形分布
-                    // 斐波那契球分布，保证粒子均匀覆盖球体
-                    const phi = Math.acos(-1 + (2 * i) / PARTICLE_COUNT);
-                    const theta = Math.sqrt(PARTICLE_COUNT * Math.PI) * phi;
-                    
-                    // 计算相对球心的偏移
-                    const tx = targetRadius * Math.cos(theta) * Math.sin(phi);
-                    const ty = targetRadius * Math.sin(theta) * Math.sin(phi);
-                    const tz = targetRadius * Math.cos(phi);
-
-                    // 加上旋转效果
-                    const time = Date.now() * 0.001;
-                    const rotX = tx * Math.cos(time) - tz * Math.sin(time);
-                    const rotZ = tx * Math.sin(time) + tz * Math.cos(time);
-
-                    const target = new THREE.Vector3(rotX, ty, rotZ).add(targetCenter);
-                    
-                    // 平滑移动
-                    currentPos.lerp(target, moveSpeed);
-
-                } else {
-                    // 扩散模式：以手心为中心向外发散，或者自由布朗运动
-                    // 添加噪点运动
-                    const noise = 0.005;
-                    currentPos.x += (Math.random()-0.5) * noise;
-                    currentPos.y += (Math.random()-0.5) * noise;
-                    currentPos.z += (Math.random()-0.5) * noise;
-
-                    // 稍微向上飘
-                    currentPos.y += 0.002;
-
-                    // 如果离得太远，重置到视野内，制造源源不断的感觉
-                    if (currentPos.y > 1.5 || currentPos.y < -1.5 || Math.abs(currentPos.x) > 1.5) {
-                        currentPos.copy(targetCenter);
-                        currentPos.x += (Math.random()-0.5)*0.5;
-                        currentPos.y += (Math.random()-0.5)*0.5;
-                    }
-                }
-
-                positions[i3] = currentPos.x;
-                positions[i3+1] = currentPos.y;
-                positions[i3+2] = currentPos.z;
-            }
-            particleSystem.geometry.attributes.position.needsUpdate = true;
         }
 
         function onWindowResize() {
@@ -499,6 +189,245 @@
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
         }
+
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        // --- 核心逻辑 ---
+
+        function render(timestamp, frame) {
+            if (!frame) return;
+
+            const session = renderer.xr.getSession();
+            const referenceSpace = renderer.xr.getReferenceSpace();
+            
+            // 重置状态
+            let leftHandFound = false;
+            let leftHandJointsData = null;
+
+            // 1. 获取输入源 (Hands)
+            if (session.inputSources) {
+                for (const inputSource of session.inputSources) {
+                    // 仅处理左手 (Left Hand Only)
+                    if (inputSource.handedness === 'left' && inputSource.hand) {
+                        leftHandFound = true;
+                        
+                        // 获取所有关节坐标
+                        leftHandJointsData = updateHandVisuals(inputSource.hand, frame, referenceSpace);
+                        
+                        // 分析手势
+                        if (leftHandJointsData) {
+                            analyzeGesture(leftHandJointsData);
+                        }
+                    }
+                }
+            }
+
+            // 如果没检测到左手，保持自由扩散状态
+            if (!leftHandFound) {
+                currentState = STATE.DIFFUSE;
+                isGathering = false;
+                handVisualGroup.visible = false;
+            } else {
+                handVisualGroup.visible = true;
+            }
+
+            // 2. 更新粒子
+            updateParticles();
+            
+            // 更新 UI 提示
+            updateInfoUI();
+
+            renderer.render(scene, camera);
+        }
+
+        // 更新手部骨骼可视化并返回关键点数据
+        function updateHandVisuals(hand, frame, refSpace) {
+            const jointData = {}; // 存储关键关节位置
+            let wristPos = null;
+
+            // 遍历所有 WebXR 关节
+            // 映射参考: https://immersive-web.github.io/webxr-hand-input/#skeleton-joints
+            // 0: wrist, 9: middle-metacarpal, 12: middle-tip
+            
+            for (let i = 0; i < JOINT_COUNT; i++) {
+                const jointName = getJointNameByIndex(i);
+                if(!jointName) continue;
+
+                const joint = hand.get(jointName);
+                const pose = frame.getJointPose(joint, refSpace);
+
+                if (pose) {
+                    jointsMesh[i].position.copy(pose.transform.position);
+                    jointsMesh[i].visible = true;
+                    
+                    // 存储用于计算的数据 (Vector3)
+                    jointData[i] = new THREE.Vector3().copy(pose.transform.position);
+                    
+                    if (i === 0) wristPos = pose.transform.position;
+                } else {
+                    jointsMesh[i].visible = false;
+                }
+            }
+
+            // 更新连线
+            bonesLines.forEach(line => {
+                const startIdx = line.userData.start;
+                const endIdx = line.userData.end;
+                
+                if (jointsMesh[startIdx].visible && jointsMesh[endIdx].visible) {
+                    const posAttr = line.geometry.attributes.position;
+                    const p1 = jointsMesh[startIdx].position;
+                    const p2 = jointsMesh[endIdx].position;
+                    
+                    posAttr.setXYZ(0, p1.x, p1.y, p1.z);
+                    posAttr.setXYZ(1, p2.x, p2.y, p2.z);
+                    posAttr.needsUpdate = true;
+                    line.visible = true;
+                } else {
+                    line.visible = false;
+                }
+            });
+
+            return Object.keys(jointData).length > 0 ? jointData : null;
+        }
+
+        function analyzeGesture(joints) {
+            // WebXR Joint Indices:
+            // 0: Wrist
+            // Tips: 4(Thumb), 8(Index), 12(Middle), 16(Ring), 20(Pinky)
+            // MCP(指根): 1(Thumb), 5(Index), 9(Middle), 13(Ring), 17(Pinky)
+
+            const wrist = joints[0];
+            const middleTip = joints[12];
+            const middleMcp = joints[9];
+            
+            if (!wrist || !middleTip || !middleMcp) return;
+
+            // 1. 计算手掌中心上方位置 (用于粒子聚集)
+            // 简单取 Wrist 和 Middle-MCP 的中点作为手掌中心
+            const palmCenter = new THREE.Vector3().copy(wrist).add(middleMcp).multiplyScalar(0.5);
+            // 向上偏移 5cm (0.05m)。注意：这里的"上"是世界坐标 Y 轴
+            targetCenter.copy(palmCenter).add(new THREE.Vector3(0, 0.05, 0));
+
+            // 2. 识别手势
+            // 算法：计算所有指尖到手腕的平均距离
+            const tips = [8, 12, 16, 20]; // 不算拇指，因为拇指动作比较独立
+            let totalDist = 0;
+            tips.forEach(idx => {
+                if(joints[idx]) totalDist += joints[idx].distanceTo(wrist);
+            });
+            const avgDist = totalDist / 4;
+
+            // 调试阈值 (单位: 米)
+            // 握拳: 指尖碰到手掌，距离很短 (~0.05 - 0.08)
+            // 爪子: 手指弯曲 (~0.10 - 0.13)
+            // 张开: 手指伸直 (> 0.14)
+            
+            // 注意：不同人的手大小不同，建议结合“指尖到指根”的弯曲度判断
+            // 但简单的距离阈值通常够用
+            
+            if (avgDist < 0.09) {
+                // === 握拳 ===
+                currentState = STATE.DIFFUSE;
+                isGathering = false;
+            } else if (avgDist > 0.15) {
+                // === 完全张开 ===
+                currentState = STATE.TENNIS;
+                targetRadius = 0.035; // 网球大小 (3.5cm)
+                isGathering = true;
+            } else {
+                // === 中间状态 (爪子) ===
+                currentState = STATE.BASKETBALL;
+                targetRadius = 0.12; // 篮球大小 (12cm)
+                isGathering = true;
+            }
+        }
+
+        function updateParticles() {
+            const positions = particleSystem.geometry.attributes.position.array;
+            
+            // 运动参数
+            let speed = 0.1;
+
+            if (currentState === STATE.DIFFUSE) {
+                speed = 0.01;
+            } else if (currentState === STATE.TENNIS) {
+                speed = 0.15; // 小球聚得快
+            }
+
+            for (let i = 0; i < PARTICLE_COUNT; i++) {
+                const i3 = i * 3;
+                let currentPos = new THREE.Vector3(positions[i3], positions[i3+1], positions[i3+2]);
+                let targetPos = new THREE.Vector3();
+
+                if (isGathering) {
+                    // 聚集逻辑：斐波那契球分布
+                    const phi = Math.acos(-1 + (2 * i) / PARTICLE_COUNT);
+                    const theta = Math.sqrt(PARTICLE_COUNT * Math.PI) * phi;
+                    
+                    const tx = targetRadius * Math.cos(theta) * Math.sin(phi);
+                    const ty = targetRadius * Math.sin(theta) * Math.sin(phi);
+                    const tz = targetRadius * Math.cos(phi);
+                    
+                    // 加上旋转
+                    const time = performance.now() * 0.001;
+                    const rotX = tx * Math.cos(time) - tz * Math.sin(time);
+                    const rotZ = tx * Math.sin(time) + tz * Math.cos(time);
+
+                    targetPos.set(rotX, ty, rotZ).add(targetCenter);
+                    
+                    // 插值移动
+                    currentPos.lerp(targetPos, speed);
+                } else {
+                    // 扩散逻辑 (握拳时)
+                    // 模拟能量不稳定，带噪点的布朗运动
+                    const noise = 0.01;
+                    currentPos.x += (Math.random()-0.5) * noise;
+                    currentPos.y += (Math.random()-0.5) * noise + 0.002; // 向上飘
+                    currentPos.z += (Math.random()-0.5) * noise;
+                    
+                    // 边界检查：如果飞太远，重置到手部附近，保持视觉连贯性
+                    if (currentPos.distanceTo(targetCenter) > 1.5) {
+                        currentPos.copy(targetCenter).addScalar((Math.random()-0.5)*0.5);
+                    }
+                }
+
+                positions[i3] = currentPos.x;
+                positions[i3+1] = currentPos.y;
+                positions[i3+2] = currentPos.z;
+            }
+
+            particleSystem.geometry.attributes.position.needsUpdate = true;
+        }
+
+        // WebXR 关节名称映射辅助
+        function getJointNameByIndex(index) {
+            const joints = [
+                "wrist", 
+                "thumb-metacarpal", "thumb-phalanx-proximal", "thumb-phalanx-distal", "thumb-tip",
+                "index-finger-metacarpal", "index-finger-phalanx-proximal", "index-finger-phalanx-intermediate", "index-finger-phalanx-distal", "index-finger-tip",
+                "middle-finger-metacarpal", "middle-finger-phalanx-proximal", "middle-finger-phalanx-intermediate", "middle-finger-phalanx-distal", "middle-finger-tip",
+                "ring-finger-metacarpal", "ring-finger-phalanx-proximal", "ring-finger-phalanx-intermediate", "ring-finger-phalanx-distal", "ring-finger-tip",
+                "pinky-finger-metacarpal", "pinky-finger-phalanx-proximal", "pinky-finger-phalanx-intermediate", "pinky-finger-phalanx-distal", "pinky-finger-tip"
+            ];
+            return joints[index];
+        }
+
+        function updateInfoUI() {
+            const info = document.getElementById('info');
+            let text = "";
+            if (!renderer.xr.isPresenting) {
+                text = "点击 START AR 进入 XR 模式";
+            } else {
+                if (currentState === STATE.DIFFUSE) text = "状态: 自由扩散 (握拳)";
+                else if (currentState === STATE.BASKETBALL) text = "状态: 篮球聚集 (大爪子)";
+                else if (currentState === STATE.TENNIS) text = "状态: 网球压缩 (张开)";
+            }
+            info.innerHTML = text;
+        }
+
     </script>
 </body>
 </html>
