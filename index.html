@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 螺旋丸 (完美微调版)</title>
+    <title>XR 螺旋丸 (最终完美版)</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
@@ -194,23 +194,25 @@
                 hand.joints['thumb-tip'].getWorldPosition(info.thumb);
                 hand.joints['index-finger-tip'].getWorldPosition(info.index);
                 
-                // === 坐标计算逻辑 (微调版) ===
+                // === 位置与高度修正区 ===
                 const vHand = new THREE.Vector3().subVectors(info.index, info.wrist);
                 const vThumb = new THREE.Vector3().subVectors(info.thumb, info.wrist);
                 
-                // 1. 手指根部基准
-                const fingerBase = new THREE.Vector3().copy(info.wrist).add(vHand.clone().multiplyScalar(0.70));
-                // 2. 法线 (朝向手心)
+                // 1. 基准点修正：
+                // 之前是 0.70 (太靠指尖)，现在改为 0.65
+                // 让球体稍微回到掌心一点点，增加稳定性
+                const fingerBase = new THREE.Vector3().copy(info.wrist).add(vHand.clone().multiplyScalar(0.65));
+                
+                // 2. 法线计算 (朝向手心)
                 const vNormal = new THREE.Vector3().crossVectors(vThumb, vHand).normalize().multiplyScalar(-1);
                 
-                // 3. 基础位置：指根 + 上浮12cm
-                info.pos.copy(fingerBase).add(vNormal.multiplyScalar(0.12));
+                // 3. 高度修正：
+                // 之前 0.12 (太高/太远)，现在降回 0.08 (8cm)
+                // 这是一个非常舒服的悬浮高度
+                info.pos.copy(fingerBase).add(vNormal.multiplyScalar(0.08));
 
-                // 4. 【新功能】向大拇指偏移 2cm
-                // 计算一个指向大拇指的单位向量，然后乘 0.02
-                const thumbDir = vThumb.clone().normalize();
-                info.pos.add(thumbDir.multiplyScalar(0.02));
-
+                // 注意：我去掉了那个额外的偏移，因为那会导致球体偏离重心感
+                
                 // === 速度计算 ===
                 if (isLeft && delta > 0) {
                     if (lastLeftPos.lengthSq() > 0.001) {
@@ -277,7 +279,7 @@
                     leftColor = 0x00ffff;
                     chargingTimer += delta;
 
-                    // 投掷条件：聚气>0.3s 且 速度>2.0
+                    // 投掷判定
                     const speed = leftHandVelocity.length();
                     if (chargingTimer > 0.3 && speed > 2.0) {
                         appState = 'THROWN';
@@ -361,37 +363,28 @@
                 const dz = pz - target.z;
                 const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                 
-                // === 微调1: 汇聚速度减慢 ===
-                // 之前是 0.2 (强吸)，现在改为 0.06 (慢吸)
-                // 这样粒子会比较慵懒地飘过来，看起来更有积蓄查克拉的感觉
+                // 1. 缓慢优雅的汇聚 (Slow Pull)
                 const targetRadius = 0.04;
                 if (dist > targetRadius) {
-                    const pullStrength = 0.06; 
+                    const pullStrength = 0.06; // 慢速汇聚
                     vx -= (dx / dist) * pullStrength;
                     vy -= (dy / dist) * pullStrength;
                     vz -= (dz / dist) * pullStrength;
                 } else {
-                    // 内部推力保持微弱，维持体积
                     const pushStrength = 0.01;
                     vx += (dx / dist) * pushStrength;
                     vy += (dy / dist) * pushStrength;
                     vz += (dz / dist) * pushStrength;
                 }
 
-                // === 微调3: 消除土星光环 (行星带) ===
-                // 之前的旋转算法导致粒子容易卡在 XZ 平面的圆环轨道上。
-                // 现在的做法：
-                // 1. 降低有向旋转的速度 (0.1 -> 0.05)
-                // 2. 引入一个垂直方向的扰动波 Math.sin(...)，强行把粒子推离赤道平面
-                
+                // 2. 消除光环 (Anti-Ring Noise)
                 const spin = 0.05; 
                 vx += dz * spin; 
-                vz -= dx * spin; // 弱旋转
-
-                // 核心：基于粒子ID的垂直扰动，打破光环
+                vz -= dx * spin; 
+                
+                // 垂直波浪扰动，强制球体化
                 vy += Math.sin(time * 3 + phases[i]) * 0.005;
 
-                // 额外的随机扰动
                 vx += (Math.random()-0.5) * 0.02;
                 vy += (Math.random()-0.5) * 0.02;
                 vz += (Math.random()-0.5) * 0.02;
@@ -405,7 +398,6 @@
                 dummy.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
 
             } else {
-                // --- 待机 ---
                 const ox = originalPos[ix], oy = originalPos[ix+1], oz = originalPos[ix+2];
                 const floatY = Math.sin(time * 1.5 + phases[i]) * 0.05;
                 vx += (ox - px) * 0.03;
