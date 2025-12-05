@@ -3,18 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 粒子控制</title>
+    <title>Galaxy XR 螺旋丸</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
         #info {
-            position: absolute; bottom: 20px; width: 100%; text-align: center;
-            color: #00ffcc; font-family: monospace; font-size: 16px;
-            pointer-events: none; z-index: 10; text-shadow: 0 0 5px #000;
+            position: absolute; bottom: 30px; width: 100%; text-align: center;
+            color: #00ffff; font-family: "Courier New", monospace; font-weight: bold;
+            pointer-events: none; z-index: 10; text-shadow: 0 0 8px #00ffff;
+            font-size: 18px;
         }
     </style>
 </head>
 <body>
-    <div id="info">正在等待 AR 会话...<br>请点击下方按钮进入 XR 模式</div>
+    <div id="info">等待 AR 会话... <br> 左手控制: 握拳(消散) | 爪子(大玉螺旋丸) | 张开(压缩)</div>
 
     <script type="importmap">
         {
@@ -32,35 +33,33 @@
         let container;
         let camera, scene, renderer;
         
-        // 粒子相关
+        // 粒子系统
         let particleSystem;
-        const PARTICLE_COUNT = 3000;
-        let particlesData = [];
+        const PARTICLE_COUNT = 4000; // 增加粒子数量，螺旋丸更密集
         
         // 交互状态
         const STATE = {
-            DIFFUSE: 0,    // 握拳: 扩散
-            BASKETBALL: 1, // 爪子: 篮球 (半径大)
-            TENNIS: 2      // 张开: 网球 (半径小)
+            DISSIPATE: 0,  // 握拳: 自由消散
+            BIG_BALL: 1,   // 爪子: 大螺旋丸
+            SMALL_BALL: 2  // 张开: 高密度小球
         };
-        let currentState = STATE.DIFFUSE;
-        let targetCenter = new THREE.Vector3(0, 0, -0.5);
+        let currentState = STATE.DISSIPATE;
+        let targetCenter = new THREE.Vector3(0, 0, -1);
         let targetRadius = 0.5;
         let isGathering = false;
         
-        // 手部可视化资源
+        // 手部可视化
         let handVisualGroup;
         const jointsMesh = [];
         const bonesLines = [];
-        const JOINT_COUNT = 25; // WebXR通常有25个关节
+        const JOINT_COUNT = 25;
         
-        // 骨骼连接索引 (WebXR 标准)
         const boneConnections = [
-            [0,1],[1,2],[2,3],[3,4],          // 拇指
-            [0,5],[5,6],[6,7],[7,8],          // 食指
-            [0,9],[9,10],[10,11],[11,12],     // 中指
-            [0,13],[13,14],[14,15],[15,16],   // 无名指
-            [0,17],[17,18],[18,19],[19,20]    // 小指
+            [0,1],[1,2],[2,3],[3,4],
+            [0,5],[5,6],[6,7],[7,8],
+            [0,9],[9,10],[10,11],[11,12],
+            [0,13],[13,14],[14,15],[15,16],
+            [0,17],[17,18],[18,19],[19,20]
         ];
 
         init();
@@ -72,21 +71,15 @@
 
             scene = new THREE.Scene();
             
-            // 摄像机
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
 
-            // 渲染器
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true; // 开启 WebXR
-            
-            // 重要：设置参考空间为 local-floor 或 local，保证手势坐标准确
+            renderer.xr.enabled = true;
             renderer.xr.setReferenceSpaceType('local'); 
-            
             container.appendChild(renderer.domElement);
 
-            // WebXR 按钮 - 必须请求 hand-tracking
             const sessionInit = { 
                 requiredFeatures: ['hand-tracking'], 
                 optionalFeatures: ['dom-overlay'],
@@ -95,14 +88,11 @@
             document.body.appendChild(ARButton.createButton(renderer, sessionInit));
 
             // 灯光
-            const light = new THREE.DirectionalLight(0xffffff, 1.5);
+            const light = new THREE.DirectionalLight(0xffffff, 2);
             light.position.set(0, 2, 0);
             scene.add(light);
 
-            // 初始化粒子
             initParticles();
-            
-            // 初始化手部可视化结构 (自定义酷炫风格)
             initHandVisuals();
 
             window.addEventListener('resize', onWindowResize);
@@ -112,9 +102,9 @@
             handVisualGroup = new THREE.Group();
             scene.add(handVisualGroup);
 
-            // 关节：发光小球
-            const jointGeo = new THREE.IcosahedronGeometry(0.006, 1);
-            const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff }); // 青色
+            // 关节: 稍微小一点，青色
+            const jointGeo = new THREE.IcosahedronGeometry(0.005, 1);
+            const jointMat = new THREE.MeshBasicMaterial({ color: 0x00ffff });
 
             for(let i=0; i<JOINT_COUNT; i++) {
                 const mesh = new THREE.Mesh(jointGeo, jointMat);
@@ -123,8 +113,8 @@
                 handVisualGroup.add(mesh);
             }
 
-            // 连线：半透明线条
-            const lineMat = new THREE.LineBasicMaterial({ color: 0x0088ff, transparent: true, opacity: 0.6 });
+            // 连线: 科技蓝
+            const lineMat = new THREE.LineBasicMaterial({ color: 0x0088ff, transparent: true, opacity: 0.4 });
             
             boneConnections.forEach(pair => {
                 const geometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -148,35 +138,42 @@
                 const z = (Math.random() - 0.5) * 2 - 1;
                 positions.push(x, y, z);
 
-                // 橙色到紫色
-                color.setHSL(Math.random() * 0.15 + 0.6, 1.0, 0.6);
+                // --- 修改点：颜色改为螺旋丸风格 (青/蓝/白) ---
+                const rand = Math.random();
+                if (rand > 0.8) {
+                    color.setHex(0xffffff); // 核心亮白
+                } else if (rand > 0.4) {
+                    color.setHex(0x00ffff); // 主要青色
+                } else {
+                    color.setHex(0x0066ff); // 深蓝边缘
+                }
+                
                 colors.push(color.r, color.g, color.b);
-
-                particlesData.push({ velocity: new THREE.Vector3() });
             }
 
             geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-            // 创建圆形发光纹理
+            // 纹理
             const canvas = document.createElement('canvas');
             canvas.width = 32; canvas.height = 32;
             const ctx = canvas.getContext('2d');
             const grad = ctx.createRadialGradient(16,16,0,16,16,16);
             grad.addColorStop(0, 'rgba(255,255,255,1)');
-            grad.addColorStop(0.4, 'rgba(255,255,255,0.5)');
+            grad.addColorStop(0.2, 'rgba(200,255,255,0.8)');
+            grad.addColorStop(0.5, 'rgba(0,255,255,0.3)');
             grad.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = grad; ctx.fillRect(0,0,32,32);
             const texture = new THREE.Texture(canvas);
             texture.needsUpdate = true;
 
             const material = new THREE.PointsMaterial({
-                size: 0.01,
+                size: 0.012,
                 vertexColors: true,
                 map: texture,
                 transparent: true,
-                opacity: 0.8,
-                blending: THREE.AdditiveBlending,
+                opacity: 0.9,
+                blending: THREE.AdditiveBlending, // 叠加模式，越聚越亮
                 depthWrite: false
             });
 
@@ -194,29 +191,21 @@
             renderer.setAnimationLoop(render);
         }
 
-        // --- 核心逻辑 ---
-
         function render(timestamp, frame) {
             if (!frame) return;
 
             const session = renderer.xr.getSession();
             const referenceSpace = renderer.xr.getReferenceSpace();
             
-            // 重置状态
             let leftHandFound = false;
             let leftHandJointsData = null;
 
-            // 1. 获取输入源 (Hands)
             if (session.inputSources) {
                 for (const inputSource of session.inputSources) {
-                    // 仅处理左手 (Left Hand Only)
                     if (inputSource.handedness === 'left' && inputSource.hand) {
                         leftHandFound = true;
-                        
-                        // 获取所有关节坐标
                         leftHandJointsData = updateHandVisuals(inputSource.hand, frame, referenceSpace);
                         
-                        // 分析手势
                         if (leftHandJointsData) {
                             analyzeGesture(leftHandJointsData);
                         }
@@ -224,63 +213,46 @@
                 }
             }
 
-            // 如果没检测到左手，保持自由扩散状态
             if (!leftHandFound) {
-                currentState = STATE.DIFFUSE;
+                currentState = STATE.DISSIPATE;
                 isGathering = false;
                 handVisualGroup.visible = false;
             } else {
                 handVisualGroup.visible = true;
             }
 
-            // 2. 更新粒子
             updateParticles();
-            
-            // 更新 UI 提示
             updateInfoUI();
 
             renderer.render(scene, camera);
         }
 
-        // 更新手部骨骼可视化并返回关键点数据
         function updateHandVisuals(hand, frame, refSpace) {
-            const jointData = {}; // 存储关键关节位置
+            const jointData = {};
             let wristPos = null;
 
-            // 遍历所有 WebXR 关节
-            // 映射参考: https://immersive-web.github.io/webxr-hand-input/#skeleton-joints
-            // 0: wrist, 9: middle-metacarpal, 12: middle-tip
-            
             for (let i = 0; i < JOINT_COUNT; i++) {
                 const jointName = getJointNameByIndex(i);
                 if(!jointName) continue;
-
                 const joint = hand.get(jointName);
                 const pose = frame.getJointPose(joint, refSpace);
 
                 if (pose) {
                     jointsMesh[i].position.copy(pose.transform.position);
                     jointsMesh[i].visible = true;
-                    
-                    // 存储用于计算的数据 (Vector3)
                     jointData[i] = new THREE.Vector3().copy(pose.transform.position);
-                    
-                    if (i === 0) wristPos = pose.transform.position;
                 } else {
                     jointsMesh[i].visible = false;
                 }
             }
 
-            // 更新连线
             bonesLines.forEach(line => {
                 const startIdx = line.userData.start;
                 const endIdx = line.userData.end;
-                
                 if (jointsMesh[startIdx].visible && jointsMesh[endIdx].visible) {
                     const posAttr = line.geometry.attributes.position;
                     const p1 = jointsMesh[startIdx].position;
                     const p2 = jointsMesh[endIdx].position;
-                    
                     posAttr.setXYZ(0, p1.x, p1.y, p1.z);
                     posAttr.setXYZ(1, p2.x, p2.y, p2.z);
                     posAttr.needsUpdate = true;
@@ -294,53 +266,34 @@
         }
 
         function analyzeGesture(joints) {
-            // WebXR Joint Indices:
-            // 0: Wrist
-            // Tips: 4(Thumb), 8(Index), 12(Middle), 16(Ring), 20(Pinky)
-            // MCP(指根): 1(Thumb), 5(Index), 9(Middle), 13(Ring), 17(Pinky)
-
             const wrist = joints[0];
-            const middleTip = joints[12];
             const middleMcp = joints[9];
             
-            if (!wrist || !middleTip || !middleMcp) return;
+            if (!wrist || !middleMcp) return;
 
-            // 1. 计算手掌中心上方位置 (用于粒子聚集)
-            // 简单取 Wrist 和 Middle-MCP 的中点作为手掌中心
+            // --- 修改点：位置调整 ---
             const palmCenter = new THREE.Vector3().copy(wrist).add(middleMcp).multiplyScalar(0.5);
-            // 向上偏移 5cm (0.05m)。注意：这里的"上"是世界坐标 Y 轴
-            targetCenter.copy(palmCenter).add(new THREE.Vector3(0, 0.05, 0));
+            // 向上偏移量改为 0.12 (12cm)，离手心更远，悬浮感更好
+            targetCenter.copy(palmCenter).add(new THREE.Vector3(0, 0.12, 0));
 
-            // 2. 识别手势
-            // 算法：计算所有指尖到手腕的平均距离
-            const tips = [8, 12, 16, 20]; // 不算拇指，因为拇指动作比较独立
+            // 手势判断逻辑
+            const tips = [8, 12, 16, 20];
             let totalDist = 0;
             tips.forEach(idx => {
                 if(joints[idx]) totalDist += joints[idx].distanceTo(wrist);
             });
             const avgDist = totalDist / 4;
 
-            // 调试阈值 (单位: 米)
-            // 握拳: 指尖碰到手掌，距离很短 (~0.05 - 0.08)
-            // 爪子: 手指弯曲 (~0.10 - 0.13)
-            // 张开: 手指伸直 (> 0.14)
-            
-            // 注意：不同人的手大小不同，建议结合“指尖到指根”的弯曲度判断
-            // 但简单的距离阈值通常够用
-            
-            if (avgDist < 0.09) {
-                // === 握拳 ===
-                currentState = STATE.DIFFUSE;
+            if (avgDist < 0.08) {
+                currentState = STATE.DISSIPATE; // 握拳
                 isGathering = false;
-            } else if (avgDist > 0.15) {
-                // === 完全张开 ===
-                currentState = STATE.TENNIS;
-                targetRadius = 0.035; // 网球大小 (3.5cm)
+            } else if (avgDist > 0.14) {
+                currentState = STATE.SMALL_BALL; // 张开
+                targetRadius = 0.05; // 压缩态
                 isGathering = true;
             } else {
-                // === 中间状态 (爪子) ===
-                currentState = STATE.BASKETBALL;
-                targetRadius = 0.12; // 篮球大小 (12cm)
+                currentState = STATE.BIG_BALL; // 爪子
+                targetRadius = 0.14; // 大玉螺旋丸
                 isGathering = true;
             }
         }
@@ -348,49 +301,69 @@
         function updateParticles() {
             const positions = particleSystem.geometry.attributes.position.array;
             
-            // 运动参数
-            let speed = 0.1;
-
-            if (currentState === STATE.DIFFUSE) {
-                speed = 0.01;
-            } else if (currentState === STATE.TENNIS) {
-                speed = 0.15; // 小球聚得快
-            }
+            // --- 修改点：极速旋转参数 ---
+            // 时间系数 * 5.0，让球体疯狂旋转
+            const time = performance.now() * 0.006; 
 
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 const i3 = i * 3;
                 let currentPos = new THREE.Vector3(positions[i3], positions[i3+1], positions[i3+2]);
-                let targetPos = new THREE.Vector3();
-
+                
                 if (isGathering) {
-                    // 聚集逻辑：斐波那契球分布
+                    // === 聚集模式 (螺旋丸) ===
+                    
+                    // 1. 计算目标位置 (Fibonacci Sphere)
                     const phi = Math.acos(-1 + (2 * i) / PARTICLE_COUNT);
                     const theta = Math.sqrt(PARTICLE_COUNT * Math.PI) * phi;
                     
-                    const tx = targetRadius * Math.cos(theta) * Math.sin(phi);
-                    const ty = targetRadius * Math.sin(theta) * Math.sin(phi);
-                    const tz = targetRadius * Math.cos(phi);
-                    
-                    // 加上旋转
-                    const time = performance.now() * 0.001;
+                    // 增加一些随机偏移，让球体表面看起来有厚度和湍流
+                    const rVariation = targetRadius * (0.9 + Math.random() * 0.2); 
+
+                    // 基础球体位置
+                    const tx = rVariation * Math.cos(theta) * Math.sin(phi);
+                    const ty = rVariation * Math.sin(theta) * Math.sin(phi);
+                    const tz = rVariation * Math.cos(phi);
+
+                    // 2. 施加多轴旋转 (核心修改：转得更快，更乱)
+                    // 绕 Y 轴高速旋转 + 绕 Z 轴缓慢进动
                     const rotX = tx * Math.cos(time) - tz * Math.sin(time);
                     const rotZ = tx * Math.sin(time) + tz * Math.cos(time);
+                    
+                    // 简单的湍流扰动
+                    const turbulence = Math.sin(time * 5 + i) * 0.01;
 
-                    targetPos.set(rotX, ty, rotZ).add(targetCenter);
+                    const targetPos = new THREE.Vector3(rotX + turbulence, ty + turbulence, rotZ).add(targetCenter);
                     
-                    // 插值移动
-                    currentPos.lerp(targetPos, speed);
+                    // 3. 极速吸附 (Lerp factor 0.15 -> 0.2)
+                    currentPos.lerp(targetPos, 0.2);
+
                 } else {
-                    // 扩散逻辑 (握拳时)
-                    // 模拟能量不稳定，带噪点的布朗运动
-                    const noise = 0.01;
-                    currentPos.x += (Math.random()-0.5) * noise;
-                    currentPos.y += (Math.random()-0.5) * noise + 0.002; // 向上飘
-                    currentPos.z += (Math.random()-0.5) * noise;
+                    // === 握拳消散模式 (核心修改) ===
                     
-                    // 边界检查：如果飞太远，重置到手部附近，保持视觉连贯性
-                    if (currentPos.distanceTo(targetCenter) > 1.5) {
-                        currentPos.copy(targetCenter).addScalar((Math.random()-0.5)*0.5);
+                    // 逻辑：给粒子一个背离中心的力，让它们炸开
+                    
+                    // 计算从中心指向粒子的向量
+                    const direction = new THREE.Vector3().subVectors(currentPos, targetCenter).normalize();
+                    if (direction.lengthSq() === 0) direction.set(0,1,0); // 防止除零
+                    
+                    // 施加斥力速度 (炸开的速度)
+                    const explodeSpeed = 0.02 + Math.random() * 0.03;
+                    currentPos.add(direction.multiplyScalar(explodeSpeed));
+                    
+                    // 加上随机扰动，模拟气流
+                    currentPos.x += (Math.random() - 0.5) * 0.01;
+                    currentPos.y += (Math.random() - 0.5) * 0.01;
+                    currentPos.z += (Math.random() - 0.5) * 0.01;
+
+                    // 重生逻辑：如果飞得太远（例如超过 1.0米），或者太久了，
+                    // 为了不让屏幕空掉，我们让它在手附近缓慢重生
+                    if (currentPos.distanceTo(targetCenter) > 0.8) {
+                        // 重置到中心附近的一个随机云团里
+                        currentPos.copy(targetCenter).add(new THREE.Vector3(
+                            (Math.random()-0.5)*0.3,
+                            (Math.random()-0.5)*0.3,
+                            (Math.random()-0.5)*0.3
+                        ));
                     }
                 }
 
@@ -402,7 +375,6 @@
             particleSystem.geometry.attributes.position.needsUpdate = true;
         }
 
-        // WebXR 关节名称映射辅助
         function getJointNameByIndex(index) {
             const joints = [
                 "wrist", 
@@ -419,15 +391,14 @@
             const info = document.getElementById('info');
             let text = "";
             if (!renderer.xr.isPresenting) {
-                text = "点击 START AR 进入 XR 模式";
+                text = "点击 START AR 启动螺旋丸";
             } else {
-                if (currentState === STATE.DIFFUSE) text = "状态: 自由扩散 (握拳)";
-                else if (currentState === STATE.BASKETBALL) text = "状态: 篮球聚集 (大爪子)";
-                else if (currentState === STATE.TENNIS) text = "状态: 网球压缩 (张开)";
+                if (currentState === STATE.DISSIPATE) text = "状态: 查克拉消散 (握拳)";
+                else if (currentState === STATE.BIG_BALL) text = "状态: 大玉螺旋丸 (爪子)";
+                else if (currentState === STATE.SMALL_BALL) text = "状态: 高密度压缩 (张开)";
             }
             info.innerHTML = text;
         }
-
     </script>
 </body>
 </html>
