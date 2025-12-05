@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 螺旋丸 (最终修正高悬浮版)</title>
+    <title>XR 螺旋丸 (手外侧悬浮版)</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
@@ -36,7 +36,7 @@
     <button id="btn-enter">启动系统</button>
     <div class="guide">
         ⏳ <b>前3秒安全锁定</b><br>
-        🌀 <b>左手摊开</b>：悬空凝聚螺旋丸<br>
+        🌀 <b>左手摊开</b>：手外侧悬浮螺旋丸<br>
         💨 <b>凝聚后用力甩</b>：发射螺旋丸<br>
         👊 <b>握拳</b>：重置
     </div>
@@ -194,22 +194,27 @@
                 hand.joints['thumb-tip'].getWorldPosition(info.thumb);
                 hand.joints['index-finger-tip'].getWorldPosition(info.index);
                 
-                // === 坐标修正核心区域 ===
+                // === 坐标修正区域 ===
                 const vHand = new THREE.Vector3().subVectors(info.index, info.wrist);
                 const vThumb = new THREE.Vector3().subVectors(info.thumb, info.wrist);
                 
-                // 1. 基准点：手腕向指尖方向移动 75% (在手指根部前方一点)
+                // 1. 基准点：手指根部前方
                 const fingerBase = new THREE.Vector3().copy(info.wrist).add(vHand.clone().multiplyScalar(0.75));
                 
-                // 2. 高度：恢复 12cm (0.12)
+                // 2. 法线 (朝向手心)
                 const vNormal = new THREE.Vector3().crossVectors(vThumb, vHand).normalize().multiplyScalar(-1);
-                const heightVec = vNormal.multiplyScalar(0.12);
+                
+                // 3. 高度：保持 12cm
+                const heightVec = vNormal.clone().multiplyScalar(0.12);
 
-                // 3. 偏移：向大拇指方向移动 3cm
-                // normalize() 确保距离精准
-                const thumbOffset = vThumb.clone().normalize().multiplyScalar(0.03); 
+                // 4. 【核心修改】手外侧漂移 5cm
+                // 计算侧向向量：法线 x 手指方向
+                // 对于左手，Up x Forward = Left (即小指/外侧方向)
+                const vSide = new THREE.Vector3().crossVectors(vNormal, vHand).normalize();
+                const sideOffset = vSide.multiplyScalar(0.05); // 往外漂 0.05
 
-                info.pos.copy(fingerBase).add(heightVec).add(thumbOffset);
+                // 最终位置 = 基准点 + 高度 + 外侧偏移
+                info.pos.copy(fingerBase).add(heightVec).add(sideOffset);
 
                 // === 速度计算 ===
                 if (isLeft && delta > 0) {
@@ -360,7 +365,7 @@
                 const dz = pz - target.z;
                 const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                 
-                // 慢速汇聚 (0.06)
+                // 慢速汇聚
                 const targetRadius = 0.04;
                 if (dist > targetRadius) {
                     const pullStrength = 0.06; 
@@ -374,7 +379,7 @@
                     vz += (dz / dist) * pushStrength;
                 }
 
-                // 无光环 (垂直扰动波)
+                // 无光环
                 const spin = 0.05; 
                 vx += dz * spin; 
                 vz -= dx * spin; 
