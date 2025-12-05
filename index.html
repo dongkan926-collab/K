@@ -1,50 +1,395 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
-    <title>Galaxy XR Scouter</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>XR 悬空螺旋丸 (指尖远距版)</title>
     <style>
-      body {
-        background-color: transparent; /* Essential for AR/XR overlay */
-        overflow: hidden;
-        font-family: 'Orbitron', sans-serif;
-      }
-      /* Scouter Animation Keyframes */
-      @keyframes scan-line {
-        0% { top: 0%; opacity: 0; }
-        10% { opacity: 1; }
-        90% { opacity: 1; }
-        100% { top: 100%; opacity: 0; }
-      }
-      .scan-beam {
-        position: absolute;
-        left: 0;
-        width: 100%;
-        height: 2px;
-        background: rgba(255, 50, 50, 0.8);
-        box-shadow: 0 0 10px rgba(255, 0, 0, 0.8);
-        animation: scan-line 2s linear infinite;
-      }
-      .scouter-text {
-        font-family: 'Share Tech Mono', monospace;
-      }
+        body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
+        #launcher {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            color: white; z-index: 999;
+        }
+        h1 { color: #aaddff; text-shadow: 0 0 15px #0088ff; letter-spacing: 4px; margin-bottom: 20px; }
+        button {
+            padding: 18px 55px; font-size: 22px; border-radius: 50px; 
+            border: 2px solid #aaddff; background: rgba(0, 100, 255, 0.2); 
+            color: #aaddff; font-weight: bold; cursor: pointer;
+        }
+        .guide { margin-top: 30px; color: #888; text-align: center; line-height: 2.0; font-size: 15px; }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0"
-  }
-}
-</script>
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
 </head>
-  <body>
-    <div id="root"></div>
-  </body>
+<body>
+
+<div id="launcher">
+    <h1>KIKŌHŌ & RASENGAN</h1>
+    <button id="btn-enter">启动系统</button>
+    <div class="guide">
+        ⏳ <b>前3秒安全锁定</b><br>
+        🌀 <b>左手摊开</b>：立体螺旋丸 (指尖悬浮)<br>
+        🔺 <b>气功炮手势</b>：拇指对拇指，食指对食指 -> 发射<br>
+        👊 <b>握拳</b>：重置
+    </div>
+</div>
+
+<script type="module">
+    import * as THREE from 'three';
+    import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
+
+    let camera, scene, renderer;
+    let hand1, hand2;
+    let stage;
+    let meshSystem, dummy = new THREE.Object3D();
+
+    const PARTICLE_COUNT = 1500; 
+    
+    const pos = new Float32Array(PARTICLE_COUNT * 3);
+    const vel = new Float32Array(PARTICLE_COUNT * 3);
+    const originalPos = new Float32Array(PARTICLE_COUNT * 3);
+    const phases = new Float32Array(PARTICLE_COUNT);
+
+    const handsInfo = {
+        left: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null },
+        right: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null }
+    };
+
+    let appState = 'IDLE'; 
+    let fireDir = new THREE.Vector3(0,0,-1);
+    let kikohoCenter = new THREE.Vector3();
+    const clock = new THREE.Clock();
+
+    document.getElementById('btn-enter').addEventListener('click', async () => {
+        if (!navigator.xr) return alert("不支持 XR");
+        try {
+            const session = await navigator.xr.requestSession('immersive-ar', {
+                requiredFeatures: ['local'],
+                optionalFeatures: ['hand-tracking']
+            });
+            document.getElementById('launcher').style.display = 'none';
+            initThree(session);
+        } catch (e) {
+            alert("启动失败: " + e.message);
+        }
+    });
+
+    function initThree(session) {
+        scene = new THREE.Scene();
+        scene.background = null;
+
+        camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 100);
+
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        renderer.xr.setReferenceSpaceType('local');
+        renderer.xr.setSession(session);
+
+        session.addEventListener('end', () => {
+            renderer.setAnimationLoop(null);
+            document.getElementById('launcher').style.display = 'flex';
+        });
+
+        stage = new THREE.Group();
+        stage.position.set(0, 0, 0); 
+        scene.add(stage);
+
+        const box = new THREE.Mesh(
+            new THREE.BoxGeometry(0.3, 0.3, 0.3),
+            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, transparent: true, opacity: 0.1 })
+        );
+        box.position.set(0, 0, -0.5);
+        stage.add(box);
+
+        const handModelFactory = new XRHandModelFactory();
+        function setupHand(index) {
+            const hand = renderer.xr.getHand(index);
+            const model = handModelFactory.createHandModel(hand, "mesh");
+            hand.add(model);
+            scene.add(hand);
+            return { hand, model };
+        }
+        const h1 = setupHand(0); hand1 = h1.hand; handsInfo.left.model = h1.model;
+        const h2 = setupHand(1); hand2 = h2.hand; handsInfo.right.model = h2.model;
+
+        createParticles();
+
+        renderer.setAnimationLoop(render);
+    }
+
+    function createParticles() {
+        const geometry = new THREE.IcosahedronGeometry(0.006, 1);
+        
+        const material = new THREE.MeshBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.9, 
+            depthWrite: false, 
+            blending: THREE.NormalBlending 
+        });
+
+        meshSystem = new THREE.InstancedMesh(geometry, material, PARTICLE_COUNT);
+        meshSystem.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        
+        for(let i=0; i<PARTICLE_COUNT; i++) {
+            const r = 0.3 + Math.random() * 0.9;
+            const theta = Math.random() * Math.PI * 2;
+            const y = (Math.random() - 0.5) * 1.0;
+            const x = r * Math.cos(theta);
+            const z = r * Math.sin(theta) - 0.3;
+
+            pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
+            originalPos[i*3] = x; originalPos[i*3+1] = y; originalPos[i*3+2] = z;
+            vel[i*3] = 0; vel[i*3+1] = 0; vel[i*3+2] = 0;
+            phases[i] = Math.random() * 100;
+
+            dummy.position.set(x,y,z);
+            dummy.updateMatrix();
+            meshSystem.setMatrixAt(i, dummy.matrix);
+            
+            meshSystem.setColorAt(i, new THREE.Color(0xaaddff));
+        }
+        stage.add(meshSystem);
+    }
+
+    function fixHandMaterial(hand, colorHex) {
+        if (!hand) return;
+        hand.traverse((child) => {
+            if (child.isMesh) {
+                if (!child.userData.initMat) {
+                    child.material = new THREE.MeshBasicMaterial({
+                        color: colorHex, wireframe: true,
+                        transparent: true, opacity: 0.3, depthTest: false
+                    });
+                    child.userData.initMat = true;
+                } else {
+                    child.material.color.setHex(colorHex);
+                }
+            }
+        });
+    }
+
+    function updateHandInfo(hand, info) {
+        info.active = false;
+        if (hand.joints && hand.joints['wrist'] && 
+            hand.joints['thumb-tip'] && hand.joints['index-finger-tip']) {
+            
+            if (hand.joints['wrist'].position.length() > 0) {
+                info.active = true;
+                hand.joints['wrist'].getWorldPosition(info.wrist);
+                hand.joints['thumb-tip'].getWorldPosition(info.thumb);
+                hand.joints['index-finger-tip'].getWorldPosition(info.index);
+                
+                // === 核心修改区域 ===
+                
+                const vHand = new THREE.Vector3().subVectors(info.index, info.wrist);
+                const vThumb = new THREE.Vector3().subVectors(info.thumb, info.wrist);
+
+                // 1. 基准点移动：从手腕向指尖方向移动 70% (到达手指根部/指节位置)
+                const fingerBase = new THREE.Vector3().copy(info.wrist).add(vHand.clone().multiplyScalar(0.70));
+
+                // 2. 法线计算 (保持之前的反转逻辑，确保朝向手心一侧)
+                const vNormal = new THREE.Vector3().crossVectors(vThumb, vHand).normalize().multiplyScalar(-1);
+
+                // 3. 悬浮距离：增加到 12cm (0.12)，离手更远
+                info.pos.copy(fingerBase).add(vNormal.multiplyScalar(0.12));
+            }
+        }
+    }
+
+    function updateState() {
+        let leftColor = 0xffffff;
+        let rightColor = 0xffffff;
+
+        // 1. 握拳重置
+        let isFist = false;
+        if(hand1.joints && hand1.joints['middle-finger-tip']) {
+             const d = hand1.joints['middle-finger-tip'].position.distanceTo(hand1.joints['wrist'].position);
+             if (d < 0.08) isFist = true;
+        }
+        if (isFist) {
+            appState = 'IDLE';
+            fixHandMaterial(handsInfo.left.model, 0xff0000);
+            fixHandMaterial(handsInfo.right.model, 0xff0000);
+            return;
+        }
+
+        // 2. 气功炮 (Tri-Beam)
+        if (handsInfo.left.active && handsInfo.right.active) {
+            const thumbDist = handsInfo.left.thumb.distanceTo(handsInfo.right.thumb);
+            const indexDist = handsInfo.left.index.distanceTo(handsInfo.right.index);
+            
+            if (thumbDist < 0.08 && indexDist < 0.08) {
+                appState = 'FIRING';
+                kikohoCenter.set(0,0,0)
+                    .add(handsInfo.left.thumb).add(handsInfo.right.thumb)
+                    .add(handsInfo.left.index).add(handsInfo.right.index)
+                    .multiplyScalar(0.25);
+                
+                const headPos = new THREE.Vector3().setFromMatrixPosition(camera.matrixWorld);
+                fireDir.subVectors(kikohoCenter, headPos).normalize();
+
+                fixHandMaterial(handsInfo.left.model, 0xffff00); 
+                fixHandMaterial(handsInfo.right.model, 0xffff00);
+                return;
+            }
+        }
+
+        // 3. 螺旋丸 (左手摊开)
+        if (handsInfo.left.active && appState !== 'FIRING') {
+            const d = hand1.joints['index-finger-tip'].position.distanceTo(hand1.joints['wrist'].position);
+            if (d > 0.12) { 
+                appState = 'CHARGING';
+                leftColor = 0x00ffff;
+            } else {
+                appState = 'IDLE';
+            }
+        }
+        
+        fixHandMaterial(handsInfo.left.model, leftColor);
+        fixHandMaterial(handsInfo.right.model, rightColor);
+    }
+
+    function render() {
+        const time = clock.getElapsedTime();
+        
+        if (time < 3.0) {
+            fixHandMaterial(handsInfo.left.model, 0x555555);
+            fixHandMaterial(handsInfo.right.model, 0x555555);
+            for(let i=0; i<PARTICLE_COUNT; i++) {
+                dummy.position.set(originalPos[i*3], originalPos[i*3+1], originalPos[i*3+2]);
+                dummy.scale.set(1,1,1);
+                dummy.updateMatrix();
+                meshSystem.setMatrixAt(i, dummy.matrix);
+            }
+            meshSystem.instanceMatrix.needsUpdate = true;
+            renderer.render(scene, camera);
+            return;
+        }
+
+        const friction = 0.90; 
+        
+        updateHandInfo(hand1, handsInfo.left);
+        updateHandInfo(hand2, handsInfo.right);
+        updateState();
+
+        const cIdle = new THREE.Color(0xaaddff); 
+        const cCharge = new THREE.Color(0x88ccff); 
+        const cFire = new THREE.Color(0xffff00); 
+
+        for(let i=0; i<PARTICLE_COUNT; i++) {
+            const ix = i*3;
+            let px = pos[ix], py = pos[ix+1], pz = pos[ix+2];
+            let vx = vel[ix], vy = vel[ix+1], vz = vel[ix+2];
+
+            if (appState === 'FIRING') {
+                vx += fireDir.x * 0.3 + (Math.random()-0.5)*0.01;
+                vy += fireDir.y * 0.3 + (Math.random()-0.5)*0.01;
+                vz += fireDir.z * 0.3 + (Math.random()-0.5)*0.01;
+                
+                meshSystem.setColorAt(i, cFire);
+                dummy.scale.set(1.5, 1.5, 10.0);
+                dummy.lookAt(px+vx, py+vy, pz+vz);
+
+            } else if (appState === 'CHARGING') {
+                const target = handsInfo.left.pos;
+                const dx = px - target.x;
+                const dy = py - target.y;
+                const dz = pz - target.z;
+                
+                const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+                const targetRadius = 0.04;
+                
+                if (dist > targetRadius) {
+                    const pullStrength = 0.2; 
+                    vx -= (dx / dist) * pullStrength;
+                    vy -= (dy / dist) * pullStrength;
+                    vz -= (dz / dist) * pullStrength;
+                } else {
+                    const pushStrength = 0.01;
+                    vx += (dx / dist) * pushStrength;
+                    vy += (dy / dist) * pushStrength;
+                    vz += (dz / dist) * pushStrength;
+                }
+
+                vx += (Math.random()-0.5) * 0.1 + dz * 0.5;
+                vy += (Math.random()-0.5) * 0.1 + dx * 0.5;
+                vz += (Math.random()-0.5) * 0.1 - dy * 0.5;
+
+                vx *= 0.6; vy *= 0.6; vz *= 0.6;
+
+                if (dist < 0.03) meshSystem.setColorAt(i, new THREE.Color(0xffffff)); 
+                else meshSystem.setColorAt(i, cCharge);
+
+                dummy.scale.set(0.8, 0.8, 0.8);
+                dummy.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
+
+            } else {
+                const ox = originalPos[ix], oy = originalPos[ix+1], oz = originalPos[ix+2];
+                const floatY = Math.sin(time * 1.5 + phases[i]) * 0.05;
+                
+                vx += (ox - px) * 0.03;
+                vy += (oy + floatY - py) * 0.03;
+                vz += (oz - pz) * 0.03;
+                
+                if (handsInfo.right.active) {
+                     const dx = px - handsInfo.right.wrist.x;
+                     const dy = py - handsInfo.right.wrist.y;
+                     const dz = pz - handsInfo.right.wrist.z;
+                     if (dx*dx+dy*dy+dz*dz < 0.06) {
+                         vx += dx * 0.05; vy += dy * 0.05; vz += dz * 0.05;
+                     }
+                }
+
+                meshSystem.setColorAt(i, cIdle);
+                dummy.scale.set(1,1,1);
+                dummy.rotation.set(0,0,0);
+            }
+
+            vx *= friction; vy *= friction; vz *= friction;
+            
+            const speed = Math.sqrt(vx*vx + vy*vy + vz*vz);
+            if (speed > 0.05) {
+                const r = 0.05 / speed;
+                vx *= r; vy *= r; vz *= r;
+            }
+
+            px += vx; py += vy; pz += vz;
+
+            if (appState === 'FIRING') {
+                if (px*px+py*py+pz*pz > 64) {
+                    px = kikohoCenter.x + (Math.random()-0.5)*0.2;
+                    py = kikohoCenter.y + (Math.random()-0.5)*0.2;
+                    pz = kikohoCenter.z + (Math.random()-0.5)*0.2;
+                    vx=0;vy=0;vz=0;
+                }
+            }
+
+            pos[ix] = px; pos[ix+1] = py; pos[ix+2] = pz;
+            vel[ix] = vx; vel[ix+1] = vy; vel[ix+2] = vz;
+
+            dummy.position.set(px, py, pz);
+            if (appState !== 'FIRING') {
+                dummy.rotation.x += vx*5; dummy.rotation.y += vy*5;
+            }
+            dummy.updateMatrix();
+            meshSystem.setMatrixAt(i, dummy.matrix);
+        }
+
+        meshSystem.instanceMatrix.needsUpdate = true;
+        meshSystem.instanceColor.needsUpdate = true;
+        renderer.render(scene, camera);
+    }
+</script>
+</body>
 </html>
