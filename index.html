@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Vegeta Scouter Cyber</title>
+    <title>Vegeta Scouter Overload</title>
     <!-- 引入龙珠风格字体 -->
     <link href="https://fonts.googleapis.com/css2?family=ZCOOL+QingKe+HuangYou&display=swap" rel="stylesheet">
     
@@ -12,7 +12,7 @@
         
         #launcher {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(5, 10, 15, 0.95); /* 改为偏冷酷的深色 */
+            background: rgba(10, 0, 0, 0.95);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             z-index: 999; color: #ffaa00;
         }
@@ -46,13 +46,13 @@
 </head>
 <body>
 
-<div class="font-preload">战斗力探测仪极度危险警惕一般般</div>
+<div class="font-preload">系统故障错误乱码极度危险</div>
 
 <div id="launcher">
     <h1 style="text-shadow: 0 0 20px #ff0000; font-size: 48px; margin: 0; letter-spacing: 5px;">赛亚人探测器</h1>
     <div style="border-left: 5px solid #ff4400; padding-left: 20px; margin-top: 20px;">
-        <p style="color: #00ffff; opacity: 0.9; font-size: 22px; margin: 5px 0;">视觉模组：赛博全息 (Cyber-Holo)</p>
-        <p style="color: #ffaa00; font-size: 18px; margin: 5px 0;">目标：贝吉塔 (VEGETA)</p>
+        <p style="color: #00ffff; opacity: 0.9; font-size: 22px; margin: 5px 0;">模式：过载模拟 (Overload)</p>
+        <p style="color: #ffaa00; font-size: 18px; margin: 5px 0;">特定目标反应：贝吉塔 -> 乱码/闪烁</p>
     </div>
     <button id="btn-start">启动 HUD</button>
 </div>
@@ -77,6 +77,9 @@
     let isLocked = false;
     let scanInterval = null;
     let animationStartTime = 0;
+    
+    // 新增：系统过载状态
+    let isSystemOverload = false;
 
     // UI 配置
     const THEME_COLOR = "#ffaa00"; 
@@ -85,14 +88,10 @@
     const ctx = canvas.getContext('2d');
     canvas.width = 512; canvas.height = 256;
 
-    // 赛博材质 (复用以节省性能)
+    // 赛博材质
     const cyberHandMaterial = new THREE.MeshBasicMaterial({
-        color: 0x00ffff,       // 青色 (Cyber Cyan)
-        wireframe: true,       // 线框模式
-        transparent: true,
-        opacity: 0.5,
-        blending: THREE.AdditiveBlending, // 发光叠加效果
-        side: THREE.DoubleSide
+        color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide
     });
 
     // 缓动函数
@@ -197,10 +196,8 @@
 
     function setupHands() {
         const handModelFactory = new XRHandModelFactory();
-        
         function buildHand(idx) {
             const hand = renderer.xr.getHand(idx);
-            // 强制使用 "mesh" 模式
             hand.add(handModelFactory.createHandModel(hand, "mesh"));
             scene.add(hand);
             return hand;
@@ -209,69 +206,109 @@
         handRight = buildHand(1);
     }
 
-    // --- 强制应用赛博材质 ---
-    // 这个函数会在每一帧运行，确保手部材质始终正确
     function enforceCyberHandStyle(hand) {
         if (!hand) return;
         hand.traverse((child) => {
-            if (child.isMesh) {
-                // 如果当前材质不是我们定义的赛博材质，就强制替换
-                if (child.material !== cyberHandMaterial) {
-                    child.material = cyberHandMaterial;
-                    // 确保不会被深度剔除，让线框更清晰
-                    child.renderOrder = 1; 
-                }
+            if (child.isMesh && child.material !== cyberHandMaterial) {
+                child.material = cyberHandMaterial;
+                child.renderOrder = 1; 
             }
         });
     }
 
+    // --- 乱码生成器 ---
+    function getGlitchString() {
+        const chars = "!@#$%^&*?ERR0101";
+        let str = "";
+        for(let i=0; i<5; i++) {
+            str += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return str;
+    }
+
     function updateCanvasUI(powerValue, isFinal) {
+        // 清空
         ctx.clearRect(0, 0, 512, 256);
 
-        ctx.fillStyle = THEME_BG;
+        // 闪烁逻辑：如果过载，根据时间戳进行高频闪烁
+        let isFlashOn = true;
+        if (isSystemOverload && isFinal) {
+            isFlashOn = (Date.now() % 200) < 100; // 每100ms切换一次
+        }
+
+        // 背景
+        ctx.fillStyle = isSystemOverload && isFinal && isFlashOn ? "rgba(100, 0, 0, 0.8)" : THEME_BG;
         ctx.beginPath();
         ctx.moveTo(0, 0); ctx.lineTo(480, 0); ctx.lineTo(512, 32); 
         ctx.lineTo(512, 256); ctx.lineTo(32, 256); ctx.lineTo(0, 224); 
         ctx.closePath();
         ctx.fill();
 
+        // 边框颜色与文字内容逻辑
         let borderColor = "#ffaa00"; 
         let dangerText = "正在分析...";
-        
+        let mainText = Math.floor(powerValue);
+
         if (isFinal) {
-            if (powerValue < 9000) {
-                borderColor = "#ffffff"; dangerText = "一般般";
-            } else if (powerValue >= 9000 && powerValue <= 18000) {
-                borderColor = "#ffaa00"; dangerText = "警惕！";
+            if (isSystemOverload) {
+                // --- 贝吉塔模式 (乱码 + 闪烁) ---
+                borderColor = isFlashOn ? "#ff0000" : "rgba(255,0,0,0.2)";
+                dangerText = "!!! 错误 !!!";
+                mainText = getGlitchString(); // 显示乱码
             } else {
-                borderColor = "#ff0000"; dangerText = "极度危险";
+                // --- 普通模式 ---
+                if (powerValue < 9000) {
+                    borderColor = "#ffffff"; dangerText = "一般般";
+                } else if (powerValue >= 9000 && powerValue <= 18000) {
+                    borderColor = "#ffaa00"; dangerText = "警惕！";
+                } else {
+                    borderColor = "#ff0000"; dangerText = "极度危险";
+                }
             }
         }
 
+        // 绘制边框
         ctx.strokeStyle = borderColor; ctx.lineWidth = 6; ctx.stroke();
+        
+        // 装饰线
         ctx.strokeStyle = "rgba(255, 100, 0, 0.3)"; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(20, 60); ctx.lineTo(492, 60); ctx.stroke();
         
-        ctx.font = "110px 'ZCOOL QingKe HuangYou'"; ctx.textAlign = "center";
+        // 主数值/乱码
+        ctx.font = isSystemOverload ? "130px 'ZCOOL QingKe HuangYou'" : "110px 'ZCOOL QingKe HuangYou'";
+        ctx.textAlign = "center";
         ctx.shadowBlur = 15; ctx.shadowColor = borderColor;
         ctx.fillStyle = isFinal ? "#fff" : THEME_COLOR;
-        ctx.fillText(Math.floor(powerValue), 256, 170);
+        
+        // 如果过载，稍微抖动文字位置
+        let offsetX = 0; let offsetY = 0;
+        if(isSystemOverload && isFinal) {
+            offsetX = (Math.random()-0.5) * 10;
+            offsetY = (Math.random()-0.5) * 10;
+        }
+        ctx.fillText(mainText, 256 + offsetX, 170 + offsetY);
 
+        // 标题
         ctx.font = "32px 'ZCOOL QingKe HuangYou'"; ctx.fillStyle = "#ffaa00";
         ctx.shadowBlur = 0; ctx.textAlign = "left";
         ctx.fillText("战斗力探测仪", 25, 45);
 
-        ctx.textAlign = "right"; ctx.fillStyle = borderColor; ctx.fillText(dangerText, 485, 45);
+        // 危险等级
+        ctx.textAlign = "right"; ctx.fillStyle = isSystemOverload ? "#ff0000" : borderColor; 
+        ctx.fillText(dangerText, 485, 45);
 
+        // 底部状态
         ctx.textAlign = "center"; ctx.fillStyle = "#ffffff";
         ctx.font = "28px 'ZCOOL QingKe HuangYou'";
-        const statusText = isFinal ? "目标已锁定" : "数据读取中...";
+        let statusText = isFinal ? "目标已锁定" : "数据读取中...";
+        if(isSystemOverload && isFinal) statusText = "系统承载过大 - 无法计算";
         ctx.fillText(statusText, 256, 225);
     }
 
     function triggerScan(position) {
         if (isLocked) return;
         isLocked = true;
+        isSystemOverload = false; // 重置过载状态
         aimCursor.visible = false;
         animationStartTime = Date.now();
 
@@ -293,7 +330,20 @@
         const dist = camera.position.distanceTo(position);
         let calculatedPower = 6000 + (7000 / (dist + 0.1)); 
         calculatedPower += Math.random() * 2000;
-        const finalPower = Math.min(Math.max(calculatedPower, 8000), 20000);
+        let finalPower = Math.min(Math.max(calculatedPower, 8000), 20000);
+
+        // --- 贝吉塔识别逻辑 ---
+        // 既然你说是贝吉塔，我们增加一个概率，或者只要数值足够高(>18000)，就判定为贝吉塔并触发乱码
+        // 为了演示效果，我们强制：如果计算出的数值本来就是“极度危险” (>18000)，就触发贝吉塔故障模式
+        if (finalPower > 18000) {
+            isSystemOverload = true;
+        }
+        
+        // 稍微hack一下：为了让你更容易看到效果，如果距离很近（dist < 1.0），直接判定为贝吉塔
+        if (dist < 1.0) {
+            isSystemOverload = true;
+            finalPower = 22000; // 内部数值设高
+        }
 
         let steps = 0;
         scanInterval = setInterval(() => {
@@ -303,15 +353,30 @@
             texture.needsUpdate = true;
 
             if (steps > 40) { // 2秒
-                clearInterval(scanInterval);
+                // 注意：这里不清空 interval，因为我们需要乱码一直闪烁
+                // 改为进入“结果展示阶段”
+                
+                // 只有普通模式才停止刷新
+                if (!isSystemOverload) {
+                     clearInterval(scanInterval);
+                } else {
+                     // 过载模式：降低刷新频率，变成闪烁动画 loop
+                     clearInterval(scanInterval);
+                     scanInterval = setInterval(()=>{
+                         updateCanvasUI(0, true); // 参数0无所谓，因为内部会用乱码覆盖
+                         texture.needsUpdate = true;
+                     }, 100);
+                }
+
+                // 首次展示结果
                 updateCanvasUI(finalPower, true);
                 texture.needsUpdate = true;
                 
                 const brackets = targetGroup.getObjectByName("brackets");
-                if (finalPower >= 18000) {
-                    brackets.material.color.setHex(0xff0000); 
+                if (isSystemOverload) {
+                    brackets.material.color.setHex(0xff0000); // 红色
                 } else if (finalPower >= 9000) {
-                    brackets.material.color.setHex(0xffaa00);
+                    brackets.material.color.setHex(0xffaa00); // 橙色
                 }
             }
         }, 50);
@@ -319,6 +384,7 @@
 
     function resetSystem() {
         isLocked = false;
+        isSystemOverload = false;
         clearInterval(scanInterval);
         targetGroup.visible = false;
         targetGroup.children[0].material.color.setHex(0xffffff); 
@@ -348,8 +414,8 @@
         if (frame) {
             const refSpace = renderer.xr.getReferenceSpace();
             const session = renderer.xr.getSession();
-
-            // 每一帧强制应用赛博手部材质
+            
+            // 强制手部材质
             enforceCyberHandStyle(handLeft);
             enforceCyberHandStyle(handRight);
 
@@ -382,26 +448,34 @@
                 const time = Date.now();
                 const progress = Math.min((time - animationStartTime) / 600, 1.0); 
                 
+                // 战术框
                 const brackets = targetGroup.getObjectByName("brackets");
                 const scale = 2.5 - 1.5 * easeOutExpo(progress); 
                 brackets.scale.set(scale, scale, scale);
                 brackets.material.opacity = progress;
 
+                // 指针
                 const leftPtr = targetGroup.getObjectByName("leftPtr");
                 const rightPtr = targetGroup.getObjectByName("rightPtr");
                 const flyDist = 1.5 - 1.0 * easeOutExpo(progress);
                 leftPtr.position.x = -flyDist;
                 rightPtr.position.x = flyDist;
 
+                // UI
                 if (powerSprite) {
                     const uiScale = easeOutBack(progress);
-                    powerSprite.scale.set(1.0 * uiScale, 0.5 * uiScale, 1);
+                    // 如果过载，稍微放大一点表示不稳定
+                    const jitter = isSystemOverload ? (Math.random()-0.5)*0.05 : 0;
+                    powerSprite.scale.set((1.0+jitter) * uiScale, (0.5+jitter) * uiScale, 1);
                     powerSprite.material.opacity = progress;
                 }
 
+                // 激光
                 const t = timestamp / 1000;
                 const laser = targetGroup.getObjectByName("laser");
-                laser.position.y = Math.sin(t * 3) * 0.25;
+                // 过载时激光疯狂抖动
+                const laserSpeed = isSystemOverload ? 10 : 3;
+                laser.position.y = Math.sin(t * laserSpeed) * 0.25;
                 
                 if (progress === 1.0) {
                     leftPtr.position.x = -0.5 - Math.sin(t * 2) * 0.02; 
