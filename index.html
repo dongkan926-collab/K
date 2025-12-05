@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 螺旋丸 (终极完美版)</title>
+    <title>XR 螺旋丸 (极致慢速聚能版)</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
@@ -36,7 +36,7 @@
     <button id="btn-enter">启动系统</button>
     <div class="guide">
         ⏳ <b>前3秒安全锁定</b><br>
-        🌀 <b>左手摊开</b>：慢速凝聚螺旋丸<br>
+        🌀 <b>左手摊开</b>：极慢速凝聚螺旋丸<br>
         💨 <b>凝聚后用力甩</b>：发射螺旋丸<br>
         👊 <b>握拳/待机</b>：左手可拨弄悬浮粒子
     </div>
@@ -363,10 +363,10 @@
                 const dz = pz - target.z;
                 const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                 
-                // === 极慢速优雅汇聚 (0.03) ===
+                // === 极致慢速优雅汇聚 (0.015) ===
                 const targetRadius = 0.04;
                 if (dist > targetRadius) {
-                    const pullStrength = 0.03; 
+                    const pullStrength = 0.015; // 再次减半
                     vx -= (dx / dist) * pullStrength;
                     vy -= (dy / dist) * pullStrength;
                     vz -= (dz / dist) * pullStrength;
@@ -405,7 +405,7 @@
 
                 // === 握拳/待机时的手部交互 ===
                 
-                // 右手交互
+                // 右手拨弄
                 if (handsInfo.right.active) {
                      const rdx = px - handsInfo.right.wrist.x;
                      const rdy = py - handsInfo.right.wrist.y;
@@ -415,7 +415,7 @@
                      }
                 }
 
-                // 左手交互 (新增)
+                // 左手拨弄
                 if (handsInfo.left.active) {
                      const ldx = px - handsInfo.left.wrist.x;
                      const ldy = py - handsInfo.left.wrist.y;
