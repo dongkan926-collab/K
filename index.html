@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 螺旋丸 (手外侧悬浮版)</title>
+    <title>XR 螺旋丸 (终极完美版)</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
@@ -36,9 +36,9 @@
     <button id="btn-enter">启动系统</button>
     <div class="guide">
         ⏳ <b>前3秒安全锁定</b><br>
-        🌀 <b>左手摊开</b>：手外侧悬浮螺旋丸<br>
+        🌀 <b>左手摊开</b>：慢速凝聚螺旋丸<br>
         💨 <b>凝聚后用力甩</b>：发射螺旋丸<br>
-        👊 <b>握拳</b>：重置
+        👊 <b>握拳/待机</b>：左手可拨弄悬浮粒子
     </div>
 </div>
 
@@ -198,22 +198,20 @@
                 const vHand = new THREE.Vector3().subVectors(info.index, info.wrist);
                 const vThumb = new THREE.Vector3().subVectors(info.thumb, info.wrist);
                 
-                // 1. 基准点：手指根部前方
+                // 1. 基准点
                 const fingerBase = new THREE.Vector3().copy(info.wrist).add(vHand.clone().multiplyScalar(0.75));
                 
-                // 2. 法线 (朝向手心)
+                // 2. 法线
                 const vNormal = new THREE.Vector3().crossVectors(vThumb, vHand).normalize().multiplyScalar(-1);
                 
-                // 3. 高度：保持 12cm
+                // 3. 高度 12cm
                 const heightVec = vNormal.clone().multiplyScalar(0.12);
 
-                // 4. 【核心修改】手外侧漂移 5cm
-                // 计算侧向向量：法线 x 手指方向
-                // 对于左手，Up x Forward = Left (即小指/外侧方向)
+                // 4. 手外侧漂移 5cm
                 const vSide = new THREE.Vector3().crossVectors(vNormal, vHand).normalize();
-                const sideOffset = vSide.multiplyScalar(0.05); // 往外漂 0.05
+                const sideOffset = vSide.multiplyScalar(0.05);
 
-                // 最终位置 = 基准点 + 高度 + 外侧偏移
+                // 最终位置
                 info.pos.copy(fingerBase).add(heightVec).add(sideOffset);
 
                 // === 速度计算 ===
@@ -365,10 +363,10 @@
                 const dz = pz - target.z;
                 const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                 
-                // 慢速汇聚
+                // === 极慢速优雅汇聚 (0.03) ===
                 const targetRadius = 0.04;
                 if (dist > targetRadius) {
-                    const pullStrength = 0.06; 
+                    const pullStrength = 0.03; 
                     vx -= (dx / dist) * pullStrength;
                     vy -= (dy / dist) * pullStrength;
                     vz -= (dz / dist) * pullStrength;
@@ -398,11 +396,35 @@
                 dummy.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, Math.random()*Math.PI);
 
             } else {
+                // --- 待机 ---
                 const ox = originalPos[ix], oy = originalPos[ix+1], oz = originalPos[ix+2];
                 const floatY = Math.sin(time * 1.5 + phases[i]) * 0.05;
                 vx += (ox - px) * 0.03;
                 vy += (oy + floatY - py) * 0.03;
                 vz += (oz - pz) * 0.03;
+
+                // === 握拳/待机时的手部交互 ===
+                
+                // 右手交互
+                if (handsInfo.right.active) {
+                     const rdx = px - handsInfo.right.wrist.x;
+                     const rdy = py - handsInfo.right.wrist.y;
+                     const rdz = pz - handsInfo.right.wrist.z;
+                     if (rdx*rdx+rdy*rdy+rdz*rdz < 0.08) {
+                         vx += rdx * 0.05; vy += rdy * 0.05; vz += rdz * 0.05;
+                     }
+                }
+
+                // 左手交互 (新增)
+                if (handsInfo.left.active) {
+                     const ldx = px - handsInfo.left.wrist.x;
+                     const ldy = py - handsInfo.left.wrist.y;
+                     const ldz = pz - handsInfo.left.wrist.z;
+                     if (ldx*ldx+ldy*ldy+ldz*ldz < 0.08) {
+                         vx += ldx * 0.05; vy += ldy * 0.05; vz += ldz * 0.05;
+                     }
+                }
+
                 meshSystem.setColorAt(i, cIdle);
                 dummy.scale.set(1,1,1);
                 dummy.rotation.set(0,0,0);
