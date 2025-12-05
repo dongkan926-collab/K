@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 立体螺旋丸 (掌心修正版)</title>
+    <title>XR 完美螺旋丸 (掌心修正版)</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
@@ -36,7 +36,7 @@
     <button id="btn-enter">启动系统</button>
     <div class="guide">
         ⏳ <b>前3秒安全锁定</b><br>
-        🌀 <b>左手摊开</b>：立体螺旋丸 (掌心悬浮)<br>
+        🌀 <b>左手摊开</b>：立体螺旋丸 (足球大小)<br>
         🔺 <b>气功炮手势</b>：拇指对拇指，食指对食指 -> 发射<br>
         👊 <b>握拳</b>：重置
     </div>
@@ -51,16 +51,18 @@
     let stage;
     let meshSystem, dummy = new THREE.Object3D();
 
-    const PARTICLE_COUNT = 1500;
+    // 粒子数量增加，保证足球大小时看起来够密
+    const PARTICLE_COUNT = 2000;
     
     const pos = new Float32Array(PARTICLE_COUNT * 3);
     const vel = new Float32Array(PARTICLE_COUNT * 3);
     const originalPos = new Float32Array(PARTICLE_COUNT * 3);
-    const phases = new Float32Array(PARTICLE_COUNT);
+    // 增加一个随机轴数据，防止粒子只绕一个方向转变成圆圈
+    const randomAxis = new Float32Array(PARTICLE_COUNT * 3);
 
     const handsInfo = {
-        left: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null },
-        right: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null }
+        left: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), middle: new THREE.Vector3(), model: null },
+        right: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), middle: new THREE.Vector3(), model: null }
     };
 
     let appState = 'IDLE'; 
@@ -84,7 +86,7 @@
 
     function initThree(session) {
         scene = new THREE.Scene();
-        scene.background = null;
+        // 不设置背景，保持透视
 
         camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.05, 100);
 
@@ -103,10 +105,10 @@
         stage = new THREE.Group();
         scene.add(stage);
 
-        // 辅助光照，让粒子更有立体感
-        const light = new THREE.PointLight(0x0088ff, 1, 2);
+        // 蓝色点光源，照亮手部和粒子
+        const light = new THREE.PointLight(0x0088ff, 1.5, 3);
         light.position.set(0, 1.5, 0);
-        scene.add(light);
+        stage.add(light);
 
         const handModelFactory = new XRHandModelFactory();
         function setupHand(index) {
@@ -129,7 +131,7 @@
         const material = new THREE.MeshBasicMaterial({
             color: 0xffffff,
             transparent: true,
-            opacity: 0.8, 
+            opacity: 0.8,
             blending: THREE.NormalBlending
         });
 
@@ -137,16 +139,24 @@
         meshSystem.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         
         for(let i=0; i<PARTICLE_COUNT; i++) {
-            const r = 0.3 + Math.random() * 0.9;
+            // 初始大范围随机分布
+            const r = 0.5 + Math.random();
             const theta = Math.random() * Math.PI * 2;
-            const y = (Math.random() - 0.5) * 1.0;
-            const x = r * Math.cos(theta);
-            const z = r * Math.sin(theta) - 0.3;
+            const phi = Math.random() * Math.PI;
+            
+            const x = r * Math.sin(phi) * Math.cos(theta);
+            const y = r * Math.sin(phi) * Math.sin(theta);
+            const z = r * Math.cos(phi) - 0.5;
 
             pos[i*3] = x; pos[i*3+1] = y; pos[i*3+2] = z;
             originalPos[i*3] = x; originalPos[i*3+1] = y; originalPos[i*3+2] = z;
             vel[i*3] = 0; vel[i*3+1] = 0; vel[i*3+2] = 0;
-            phases[i] = Math.random() * 100;
+
+            // 为每个粒子分配一个随机的旋转轴，防止它们变成一个平面的圆环
+            const ra = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+            randomAxis[i*3] = ra.x;
+            randomAxis[i*3+1] = ra.y;
+            randomAxis[i*3+2] = ra.z;
 
             dummy.position.set(x,y,z);
             dummy.updateMatrix();
@@ -160,7 +170,6 @@
         if (!hand) return;
         hand.traverse((child) => {
             if (child.isMesh) {
-                // 确保材质只创建一次或高效更新
                 if (!child.userData.initMat) {
                      child.material = new THREE.MeshBasicMaterial({
                         color: colorHex, wireframe: true,
@@ -177,35 +186,38 @@
     function updateHandInfo(hand, info) {
         info.active = false;
         if (hand.joints && hand.joints['wrist'] && 
-            hand.joints['thumb-tip'] && hand.joints['index-finger-tip']) {
+            hand.joints['thumb-tip'] && hand.joints['index-finger-tip'] && hand.joints['middle-finger-tip']) {
             
             if (hand.joints['wrist'].position.length() > 0) {
                 info.active = true;
                 hand.joints['wrist'].getWorldPosition(info.wrist);
                 hand.joints['thumb-tip'].getWorldPosition(info.thumb);
                 hand.joints['index-finger-tip'].getWorldPosition(info.index);
+                hand.joints['middle-finger-tip'].getWorldPosition(info.middle);
                 
-                // --- 核心修正算法：计算掌心悬浮位置 ---
-                
-                // 1. 计算手掌方向向量 (手腕 -> 食指尖)
-                const vHandDir = new THREE.Vector3().subVectors(info.index, info.wrist);
-                
-                // 2. 计算掌心基准点：手腕沿着手掌方向延伸 40% (大约在指关节根部)
-                const palmCenterBase = new THREE.Vector3().copy(info.wrist).add(vHandDir.clone().multiplyScalar(0.40));
+                // === 位置修正算法 ===
 
-                // 3. 计算手掌法线 (垂直于掌面的方向)
-                // 通过 拇指向量 和 食指向量 的叉乘来确定
-                const vThumbDir = new THREE.Vector3().subVectors(info.thumb, info.wrist);
-                
-                // 左手通常用 拇指 x 食指 得到向上的法线 (右手坐标系下可能需要反转，这里针对左手优化)
-                // 经过测试，对于左手，Cross(Thumb, Index) 通常指向掌心内侧或外侧，取决于手势
-                // 这里使用一个简单的几何技巧：让粒子浮在 palmCenterBase 沿着法线方向 5cm 处
-                const vNormal = new THREE.Vector3().crossVectors(vThumbDir, vHandDir).normalize();
-                
-                // 修正法线方向：如果法线指向手背，可能需要取反。
-                // 简单处理：我们让球体始终悬浮在 "手掌张开的凹陷处"
-                // 在WebXR中，直接叠加法线偏移
-                info.pos.copy(palmCenterBase).add(vNormal.multiplyScalar(0.06)); 
+                // 1. 基准点：手腕 和 中指指尖 的中间偏下一点（手掌中心）
+                // 手腕位置
+                const pWrist = info.wrist;
+                // 中指方向
+                const vMiddle = new THREE.Vector3().subVectors(info.middle, info.wrist);
+                // 掌心点 = 手腕 + 中指方向的 45%
+                const palmCenter = new THREE.Vector3().copy(pWrist).add(vMiddle.clone().multiplyScalar(0.45));
+
+                // 2. 法线计算（垂直于手掌的方向）
+                // 使用 (拇指 - 手腕) 叉乘 (中指 - 手腕)
+                const vThumb = new THREE.Vector3().subVectors(info.thumb, info.wrist);
+                const vNormal = new THREE.Vector3().crossVectors(vThumb, vMiddle).normalize();
+
+                // 【关键修正】
+                // 根据反馈，之前是在手背。我们现在反转法线方向，使其指向手心一侧。
+                // 这里的 -1 是为了反转方向
+                vNormal.multiplyScalar(-1); 
+
+                // 3. 最终悬浮位置
+                // 沿着掌心法线向上移动 8cm (0.08)，这样球体中心就在掌心上方悬空
+                info.pos.copy(palmCenter).add(vNormal.multiplyScalar(0.08)); 
             }
         }
     }
@@ -214,7 +226,7 @@
         let leftColor = 0xffffff;
         let rightColor = 0xffffff;
 
-        // 1. 握拳重置
+        // 1. 握拳重置 (中指尖靠近手腕)
         let isFist = false;
         if(hand1.joints && hand1.joints['middle-finger-tip']) {
              const d = hand1.joints['middle-finger-tip'].position.distanceTo(hand1.joints['wrist'].position);
@@ -227,7 +239,7 @@
             return;
         }
 
-        // 2. 气功炮 (Tri-Beam)
+        // 2. 气功炮
         if (handsInfo.left.active && handsInfo.right.active) {
             const thumbDist = handsInfo.left.thumb.distanceTo(handsInfo.right.thumb);
             const indexDist = handsInfo.left.index.distanceTo(handsInfo.right.index);
@@ -250,8 +262,9 @@
 
         // 3. 螺旋丸 (左手摊开)
         if (handsInfo.left.active && appState !== 'FIRING') {
+            // 判断是否摊开 (食指指尖离手腕较远)
             const d = hand1.joints['index-finger-tip'].position.distanceTo(hand1.joints['wrist'].position);
-            if (d > 0.12) { 
+            if (d > 0.10) { 
                 appState = 'CHARGING';
                 leftColor = 0x00ffff;
             } else {
@@ -267,7 +280,7 @@
         const time = clock.getElapsedTime();
         
         if (time < 3.0) {
-            // 启动时的安全演示
+            // 开场等待
             fixHandMaterial(handsInfo.left.model, 0x555555);
             fixHandMaterial(handsInfo.right.model, 0x555555);
             for(let i=0; i<PARTICLE_COUNT; i++) {
@@ -281,15 +294,15 @@
             return;
         }
 
-        const friction = 0.92; // 增加一点摩擦力，让其更受控
+        const friction = 0.94; // 稍微增加阻尼，让球体形态更稳定
         
         updateHandInfo(hand1, handsInfo.left);
         updateHandInfo(hand2, handsInfo.right);
         updateState();
 
         const cIdle = new THREE.Color(0xaaddff); 
-        const cChargeCore = new THREE.Color(0xffffff); 
-        const cChargeEdge = new THREE.Color(0x0088ff);
+        const cCore = new THREE.Color(0xffffff); 
+        const cShell = new THREE.Color(0x00aaff);
         const cFire = new THREE.Color(0xffff00); 
 
         for(let i=0; i<PARTICLE_COUNT; i++) {
@@ -298,17 +311,17 @@
             let vx = vel[ix], vy = vel[ix+1], vz = vel[ix+2];
 
             if (appState === 'FIRING') {
-                // --- 气功炮 ---
-                vx += fireDir.x * 0.3 + (Math.random()-0.5)*0.02;
-                vy += fireDir.y * 0.3 + (Math.random()-0.5)*0.02;
-                vz += fireDir.z * 0.3 + (Math.random()-0.5)*0.02;
+                // --- 气功炮模式 ---
+                vx += fireDir.x * 0.4 + (Math.random()-0.5)*0.03;
+                vy += fireDir.y * 0.4 + (Math.random()-0.5)*0.03;
+                vz += fireDir.z * 0.4 + (Math.random()-0.5)*0.03;
                 
                 meshSystem.setColorAt(i, cFire);
-                dummy.scale.set(2.0, 2.0, 8.0); 
+                dummy.scale.set(2.0, 2.0, 6.0); 
                 dummy.lookAt(px+vx, py+vy, pz+vz);
 
             } else if (appState === 'CHARGING') {
-                // --- 螺旋丸模式 (形状修正版) ---
+                // --- 螺旋丸模式 (3D 立体球修正版) ---
                 const target = handsInfo.left.pos;
                 const dx = px - target.x;
                 const dy = py - target.y;
@@ -316,65 +329,56 @@
                 
                 const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
                 
-                // 目标半径：5cm
-                const R = 0.05; 
+                // 足球大小：半径约 0.1 (10cm)
+                const TARGET_RADIUS = 0.10; 
                 
-                // 1. 径向力 (Radial Force)：强力约束在球壳表面
-                let force = 0;
-                if (dist > R) {
-                    // 在外面：强吸力
-                    force = -0.3; 
-                } else {
-                    // 在里面：弱推力 (形成空心感)
-                    force = 0.05;
-                }
-                
-                // 归一化方向向量
-                const nx = dx / (dist || 0.01);
-                const ny = dy / (dist || 0.01);
-                const nz = dz / (dist || 0.01);
+                // 1. 球体约束力：像弹簧一样把粒子拉到球壳表面
+                // 如果在内部，往外推；如果在外部，往里拉
+                const radialForceStrength = 0.15;
+                const diff = dist - TARGET_RADIUS;
+                const dirX = dx / (dist || 1);
+                const dirY = dy / (dist || 1);
+                const dirZ = dz / (dist || 1);
 
-                vx += nx * force;
-                vy += ny * force;
-                vz += nz * force;
+                // 负号表示：dist > R 时拉回来(减小距离)，dist < R 时推出去
+                vx -= dirX * diff * radialForceStrength;
+                vy -= dirY * diff * radialForceStrength;
+                vz -= dirZ * diff * radialForceStrength;
 
-                // 2. 切向流动力 (Tangential Flow)：让它转起来
-                // 制造一个混乱但围绕球心的旋转
-                // 使用叉乘生成切线方向：Normal X RandomVector
-                const spinAxisX = Math.sin(time * 2); 
-                const spinAxisY = Math.cos(time * 2);
-                const spinAxisZ = Math.sin(time); // 动态旋转轴
+                // 2. 3D 随机切向旋转力 (解决变圆圈的问题)
+                // 使用该粒子专属的随机轴 (randomAxis) 与 当前半径方向 叉乘
+                // 这样每个粒子都在球面上沿不同的“大圆”路径旋转，交织成一个完整的球
+                const rx = randomAxis[ix];
+                const ry = randomAxis[ix+1];
+                const rz = randomAxis[ix+2];
 
-                // 切向力
-                vx += (ny * spinAxisZ - nz * spinAxisY) * 0.05;
-                vy += (nz * spinAxisX - nx * spinAxisZ) * 0.05;
-                vz += (nx * spinAxisY - ny * spinAxisX) * 0.05;
+                // Cross(RadiusDir, RandomAxis) -> 切线方向
+                const tx = dirY * rz - dirZ * ry;
+                const ty = dirZ * rx - dirX * rz;
+                const tz = dirX * ry - dirY * rx;
 
-                // 3. 颜色梯度
-                if (dist < R * 0.8) meshSystem.setColorAt(i, cChargeCore);
-                else meshSystem.setColorAt(i, cChargeEdge);
+                const spinSpeed = 0.02; // 旋转速度
+                vx += tx * spinSpeed;
+                vy += ty * spinSpeed;
+                vz += tz * spinSpeed;
 
-                dummy.scale.set(0.6, 0.6, 0.6);
-                dummy.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
+                // 颜色处理：内部白，外部蓝
+                if (Math.abs(diff) < 0.02) meshSystem.setColorAt(i, cShell);
+                else meshSystem.setColorAt(i, cCore);
+
+                dummy.scale.set(0.7, 0.7, 0.7);
+                // 粒子自转
+                dummy.rotation.x += vx * 20;
+                dummy.rotation.y += vy * 20;
 
             } else {
                 // --- 待机 ---
                 const ox = originalPos[ix], oy = originalPos[ix+1], oz = originalPos[ix+2];
-                const floatY = Math.sin(time * 1.5 + phases[i]) * 0.05;
-                
-                vx += (ox - px) * 0.03;
-                vy += (oy + floatY - py) * 0.03;
-                vz += (oz - pz) * 0.03;
+                // 轻微呼吸
+                vx += (ox - px) * 0.02;
+                vy += (oy - py) * 0.02;
+                vz += (oz - pz) * 0.02;
 
-                // 右手互动
-                if (handsInfo.right.active) {
-                     const idx = px - handsInfo.right.wrist.x;
-                     const idy = py - handsInfo.right.wrist.y;
-                     const idz = pz - handsInfo.right.wrist.z;
-                     if (idx*idx+idy*idy+idz*idz < 0.06) {
-                         vx += idx * 0.05; vy += idy * 0.05; vz += idz * 0.05;
-                     }
-                }
                 meshSystem.setColorAt(i, cIdle);
                 dummy.scale.set(1,1,1);
                 dummy.rotation.set(0,0,0);
@@ -382,21 +386,12 @@
 
             vx *= friction; vy *= friction; vz *= friction;
             
-            // 速度限制 (防止爆炸)
-            const speed = Math.sqrt(vx*vx + vy*vy + vz*vz);
-            if (speed > 0.1) {
-                const r = 0.1 / speed;
-                vx *= r; vy *= r; vz *= r;
-            }
-
             px += vx; py += vy; pz += vz;
 
-            // 循环复用
+            // 循环复用 (发射飞远后回到中心)
             if (appState === 'FIRING') {
                 if (px*px+py*py+pz*pz > 100) {
-                    px = kikohoCenter.x + (Math.random()-0.5)*0.1;
-                    py = kikohoCenter.y + (Math.random()-0.5)*0.1;
-                    pz = kikohoCenter.z + (Math.random()-0.5)*0.1;
+                    px = kikohoCenter.x; py = kikohoCenter.y; pz = kikohoCenter.z;
                     vx=0;vy=0;vz=0;
                 }
             }
@@ -405,10 +400,6 @@
             vel[ix] = vx; vel[ix+1] = vy; vel[ix+2] = vz;
 
             dummy.position.set(px, py, pz);
-            if (appState !== 'FIRING') {
-                dummy.rotation.x += vx * 10;
-                dummy.rotation.y += vy * 10;
-            }
             dummy.updateMatrix();
             meshSystem.setMatrixAt(i, dummy.matrix);
         }
