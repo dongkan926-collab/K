@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 螺旋丸 (极致慢速聚能版)</title>
+    <title>XR 螺旋丸 (最终完成版)</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
@@ -36,7 +36,7 @@
     <button id="btn-enter">启动系统</button>
     <div class="guide">
         ⏳ <b>前3秒安全锁定</b><br>
-        🌀 <b>左手摊开</b>：极慢速凝聚螺旋丸<br>
+        🌀 <b>左手摊开</b>：慢速凝聚螺旋丸<br>
         💨 <b>凝聚后用力甩</b>：发射螺旋丸<br>
         👊 <b>握拳/待机</b>：左手可拨弄悬浮粒子
     </div>
@@ -109,12 +109,7 @@
         stage = new THREE.Group();
         scene.add(stage);
 
-        const box = new THREE.Mesh(
-            new THREE.BoxGeometry(0.3, 0.3, 0.3),
-            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true, transparent: true, opacity: 0.1 })
-        );
-        box.position.set(0, 0, -0.5);
-        stage.add(box);
+        // --- 已删除红框 ---
 
         const handModelFactory = new XRHandModelFactory();
         function setupHand(index) {
@@ -332,6 +327,7 @@
         const cIdle = new THREE.Color(0xaaddff); 
         const cCharge = new THREE.Color(0x88ccff); 
         const cFire = new THREE.Color(0xffff00); 
+        const cCore = new THREE.Color(0xffffff);
 
         for(let i=0; i<PARTICLE_COUNT; i++) {
             const ix = i*3;
@@ -366,7 +362,7 @@
                 // === 极致慢速优雅汇聚 (0.015) ===
                 const targetRadius = 0.04;
                 if (dist > targetRadius) {
-                    const pullStrength = 0.015; // 再次减半
+                    const pullStrength = 0.015; 
                     vx -= (dx / dist) * pullStrength;
                     vy -= (dy / dist) * pullStrength;
                     vz -= (dz / dist) * pullStrength;
@@ -377,7 +373,6 @@
                     vz += (dz / dist) * pushStrength;
                 }
 
-                // 无光环
                 const spin = 0.05; 
                 vx += dz * spin; 
                 vz -= dx * spin; 
@@ -389,7 +384,9 @@
 
                 vx *= 0.6; vy *= 0.6; vz *= 0.6;
 
-                if (dist < 0.03) meshSystem.setColorAt(i, new THREE.Color(0xffffff)); 
+                // === 核心白光增强 ===
+                // 之前是 0.03, 现在扩大到 0.035, 让核心更饱满
+                if (dist < 0.035) meshSystem.setColorAt(i, cCore); 
                 else meshSystem.setColorAt(i, cCharge);
 
                 dummy.scale.set(0.8, 0.8, 0.8);
@@ -403,18 +400,6 @@
                 vy += (oy + floatY - py) * 0.03;
                 vz += (oz - pz) * 0.03;
 
-                // === 握拳/待机时的手部交互 ===
-                
-                // 右手拨弄
-                if (handsInfo.right.active) {
-                     const rdx = px - handsInfo.right.wrist.x;
-                     const rdy = py - handsInfo.right.wrist.y;
-                     const rdz = pz - handsInfo.right.wrist.z;
-                     if (rdx*rdx+rdy*rdy+rdz*rdz < 0.08) {
-                         vx += rdx * 0.05; vy += rdy * 0.05; vz += rdz * 0.05;
-                     }
-                }
-
                 // 左手拨弄
                 if (handsInfo.left.active) {
                      const ldx = px - handsInfo.left.wrist.x;
@@ -422,6 +407,15 @@
                      const ldz = pz - handsInfo.left.wrist.z;
                      if (ldx*ldx+ldy*ldy+ldz*ldz < 0.08) {
                          vx += ldx * 0.05; vy += ldy * 0.05; vz += ldz * 0.05;
+                     }
+                }
+                // 右手拨弄
+                if (handsInfo.right.active) {
+                     const rdx = px - handsInfo.right.wrist.x;
+                     const rdy = py - handsInfo.right.wrist.y;
+                     const rdz = pz - handsInfo.right.wrist.z;
+                     if (rdx*rdx+rdy*rdy+rdz*rdz < 0.08) {
+                         vx += rdx * 0.05; vy += rdy * 0.05; vz += rdz * 0.05;
                      }
                 }
 
