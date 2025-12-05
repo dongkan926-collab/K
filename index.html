@@ -3,41 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 粒子操控 - 修正版</title>
+    <title>XR 粒子修复版</title>
     <style>
         body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
-        
-        /* 信息面板优化 */
-        #info {
-            position: absolute; top: 20px; width: 100%; text-align: center;
-            color: #00ffcc; font-family: monospace; font-weight: bold;
-            pointer-events: none; z-index: 10; font-size: 16px;
-            text-shadow: 2px 2px 0 #000;
-            white-space: pre-line; /* 允许换行 */
-        }
-
-        /* 强制覆盖 AR 按钮样式，让它居中且变大 */
-        button#ARButton {
-            position: absolute !important;
-            left: 50% !important;
-            top: 50% !important;
-            transform: translate(-50%, -50%) !important;
-            bottom: auto !important;
-            width: 200px !important;
-            height: 80px !important;
-            font-size: 24px !important;
-            background-color: rgba(0, 255, 255, 0.8) !important;
-            border: 2px solid white !important;
-            border-radius: 10px !important;
-            color: black !important;
-            font-weight: bold !important;
-            box-shadow: 0 0 20px #00ffff !important;
+        /* 使用最简单的文字提示，避免遮挡 */
+        #debug-console {
+            position: absolute; 
+            top: 20px; 
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            text-align: center;
+            color: #00ff00; 
+            font-family: monospace; 
+            font-size: 16px;
+            pointer-events: none; 
+            z-index: 10;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 8px;
         }
     </style>
 </head>
 <body>
-    <div id="info">等待启动...<br>请点击屏幕中央按钮</div>
+    <div id="debug-console">系统就绪<br>请点击底部 "START AR" 按钮</div>
 
+    <!-- 引入 Three.js -->
     <script type="importmap">
         {
             "imports": {
@@ -53,32 +44,31 @@
 
         let container;
         let camera, scene, renderer;
-        
-        // 粒子系统
+        let controller;
+
+        // 核心对象
         let particleSystem;
-        const PARTICLE_COUNT = 4000; 
+        let referenceSphere; // 参照物
         
-        // 状态定义
+        // 数据
+        const PARTICLE_COUNT = 3500;
+        let particlesData = [];
+        
+        // 状态
         const STATE = {
-            IDLE: 0,       // 握拳/无手: 粒子在身体周围自由飘荡 (重置)
-            BIG_BALL: 1,   // 爪子: 大螺旋丸 (旋转快)
-            SMALL_BALL: 2  // 张开: 高密度压缩 (旋转极快)
+            IDLE: 0,      // 自由漂浮
+            GATHER: 1     // 螺旋丸汇聚
         };
         let currentState = STATE.IDLE;
+        
+        // 目标点 (默认在正前方 1米)
+        let targetPosition = new THREE.Vector3(0, 1.6, -1); 
+        // 旋转参数
+        let spinSpeed = 2.0;
+        let gatherRadius = 0.5;
 
-        // 目标位置 & 参数
-        let targetCenter = new THREE.Vector3(0, 0, -1);
-        let targetRadius = 0.5;
-        let isGathering = false; // 是否在汇聚状态
-        
-        // 手部数据可视化
-        let handVisualGroup;
-        const jointsMesh = [];
-        const bonesLines = [];
-        const JOINT_COUNT = 25;
-        
-        // 调试数据
-        let debugHandOpenness = 0; // 手张开的程度 (米)
+        // 调试 UI
+        const debugDiv = document.getElementById('debug-console');
 
         init();
         animate();
@@ -88,6 +78,7 @@
             document.body.appendChild(container);
 
             scene = new THREE.Scene();
+            // 注意：WebAR 需要背景透明，不要设置 background color
             
             // 摄像机
             camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.01, 100);
@@ -97,12 +88,15 @@
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
-            renderer.xr.setReferenceSpaceType('local'); // 保证头显坐标系正确
+            // 使用 local 参考系，原点通常在启动 AR 时的头显位置
+            renderer.xr.setReferenceSpaceType('local'); 
             container.appendChild(renderer.domElement);
 
-            // AR 按钮
+            // 添加 AR 按钮 (标准样式，位于底部)
+            // 必须请求 hand-tracking
             const sessionInit = { requiredFeatures: ['hand-tracking'] };
-            document.body.appendChild(ARButton.createButton(renderer, sessionInit));
+            const btn = ARButton.createButton(renderer, sessionInit);
+            document.body.appendChild(btn);
 
             // 灯光
             scene.add(new THREE.AmbientLight(0xffffff, 0.5));
@@ -110,69 +104,64 @@
             light.position.set(0, 2, 0);
             scene.add(light);
 
-            // 初始化
+            // 1. 创建一个参照物 (线框球)，让你知道 AR 正在运行
+            const sphereGeo = new THREE.SphereGeometry(0.1, 16, 16);
+            const sphereMat = new THREE.MeshBasicMaterial({ color: 0x00ff00, wireframe: true, transparent: true, opacity: 0.3 });
+            referenceSphere = new THREE.Mesh(sphereGeo, sphereMat);
+            referenceSphere.position.set(0, 1.6, -1); // 放在眼睛高度前方
+            scene.add(referenceSphere);
+
+            // 2. 初始化粒子
             initParticles();
-            initHandVisuals();
 
+            // 3. 事件监听
             window.addEventListener('resize', onWindowResize);
-        }
-
-        function initHandVisuals() {
-            handVisualGroup = new THREE.Group();
-            scene.add(handVisualGroup);
-
-            // 关节 (非常小，不抢眼)
-            const jointGeo = new THREE.IcosahedronGeometry(0.004, 0);
-            const jointMat = new THREE.MeshBasicMaterial({ color: 0x00aaaa, opacity: 0.5, transparent: true });
-
-            for(let i=0; i<JOINT_COUNT; i++) {
-                const mesh = new THREE.Mesh(jointGeo, jointMat);
-                mesh.visible = false;
-                jointsMesh.push(mesh);
-                handVisualGroup.add(mesh);
-            }
-            // 线条这里省略，为了视觉更简洁，只显示关节即可验证追踪
         }
 
         function initParticles() {
             const geometry = new THREE.BufferGeometry();
             const positions = [];
             const colors = [];
-            const sizes = [];
             const color = new THREE.Color();
 
             for (let i = 0; i < PARTICLE_COUNT; i++) {
-                // 初始位置：随机分布在用户周围
-                const x = (Math.random() - 0.5) * 4;
-                const y = (Math.random() - 0.5) * 2 + 1.5;
-                const z = (Math.random() - 0.5) * 4;
+                // 初始分布在正前方 1 米处，形成一个云团
+                const x = (Math.random() - 0.5) * 1.5;
+                const y = (Math.random() - 0.5) * 1.5 + 1.6; // 高度 1.6m
+                const z = (Math.random() - 0.5) * 1.5 - 1.0; // 前方 1m
                 positions.push(x, y, z);
 
-                // 颜色：青蓝白风格
-                if (Math.random() > 0.5) color.setHex(0x00ffff); // 青
-                else if (Math.random() > 0.5) color.setHex(0xffffff); // 白
-                else color.setHex(0x0044ff); // 蓝
-                
+                // 颜色：螺旋丸风格 (青/白/蓝)
+                const rand = Math.random();
+                if (rand > 0.6) color.setHex(0x00ffff); // 青
+                else if (rand > 0.3) color.setHex(0xffffff); // 白
+                else color.setHex(0x0088ff); // 蓝
+
                 colors.push(color.r, color.g, color.b);
+
+                particlesData.push({
+                    velocity: new THREE.Vector3(0,0,0),
+                    startPos: new THREE.Vector3(x,y,z) // 记住初始位置
+                });
             }
 
             geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
 
-            // 纹理生成
+            // 简单的发光点纹理
             const canvas = document.createElement('canvas');
             canvas.width = 32; canvas.height = 32;
             const ctx = canvas.getContext('2d');
             const grad = ctx.createRadialGradient(16,16,0,16,16,16);
             grad.addColorStop(0, 'rgba(255,255,255,1)');
-            grad.addColorStop(0.4, 'rgba(100,255,255,0.5)');
+            grad.addColorStop(0.5, 'rgba(0,255,255,0.5)');
             grad.addColorStop(1, 'rgba(0,0,0,0)');
             ctx.fillStyle = grad; ctx.fillRect(0,0,32,32);
             const texture = new THREE.Texture(canvas);
             texture.needsUpdate = true;
 
             const material = new THREE.PointsMaterial({
-                size: 0.006, // === 修正点：粒子更小 ===
+                size: 0.015, // 稍微大一点，确保能看见
                 vertexColors: true,
                 map: texture,
                 transparent: true,
@@ -196,161 +185,143 @@
         }
 
         function render(timestamp, frame) {
+            // 让参照物自转，证明程序没卡死
+            if (referenceSphere) {
+                referenceSphere.rotation.y += 0.01;
+                referenceSphere.rotation.x += 0.005;
+            }
+
             if (!frame) return;
 
             const session = renderer.xr.getSession();
             const referenceSpace = renderer.xr.getReferenceSpace();
             
-            let leftHandFound = false;
+            let leftHandDetected = false;
+            let debugMsg = "AR 运行中\n寻找左手...";
 
+            // 1. 获取左手输入
             if (session.inputSources) {
                 for (const inputSource of session.inputSources) {
                     if (inputSource.handedness === 'left' && inputSource.hand) {
-                        leftHandFound = true;
-                        updateHandLogic(inputSource.hand, frame, referenceSpace);
+                        leftHandDetected = true;
+                        
+                        // 获取关键关节
+                        const wrist = inputSource.hand.get('wrist');
+                        const middleTip = inputSource.hand.get('middle-finger-tip');
+                        const middleMcp = inputSource.hand.get('middle-finger-metacarpal');
+
+                        const wristPose = frame.getJointPose(wrist, referenceSpace);
+                        const tipPose = frame.getJointPose(middleTip, referenceSpace);
+                        const mcpPose = frame.getJointPose(middleMcp, referenceSpace);
+
+                        if (wristPose && tipPose && mcpPose) {
+                            // 找到了手！隐藏参照球，免得碍眼
+                            referenceSphere.visible = false;
+
+                            // 计算手心上方位置
+                            // Wrist 和 MCP 的中点作为手掌中心
+                            const palmPos = new THREE.Vector3().copy(wristPose.transform.position)
+                                .add(mcpPose.transform.position).multiplyScalar(0.5);
+                            
+                            // 更新目标位置：手心上方 15cm
+                            targetPosition.copy(palmPos).add(new THREE.Vector3(0, 0.15, 0));
+
+                            // 计算张开程度 (Tip 到 Wrist 的距离)
+                            const dist = tipPose.transform.position.distanceTo(wristPose.transform.position);
+                            
+                            debugMsg = `左手已连接 | 距离: ${dist.toFixed(2)}`;
+
+                            // 逻辑判断
+                            if (dist < 0.10) {
+                                // 握拳 -> 重置/消散
+                                currentState = STATE.IDLE;
+                                debugMsg += "\n状态: 握拳 (重置)";
+                            } else {
+                                // 张开/爪子 -> 聚集
+                                currentState = STATE.GATHER;
+                                isGathering = true;
+                                
+                                if (dist > 0.16) {
+                                    gatherRadius = 0.05; // 小球
+                                    spinSpeed = 10.0;
+                                    debugMsg += "\n状态: 螺旋丸 (压缩)";
+                                } else {
+                                    gatherRadius = 0.15; // 大球
+                                    spinSpeed = 5.0;
+                                    debugMsg += "\n状态: 螺旋丸 (大玉)";
+                                }
+                            }
+                        }
                     }
                 }
             }
 
-            // 如果没找到左手，强制进入 IDLE (重置) 状态
-            if (!leftHandFound) {
+            if (!leftHandDetected) {
                 currentState = STATE.IDLE;
-                isGathering = false;
-                handVisualGroup.visible = false;
-                debugHandOpenness = 0;
+                // 如果没手，显示参照球
+                referenceSphere.visible = true;
+                // 让参照球稍微动一下，吸引注意力
+                referenceSphere.position.y = 1.6 + Math.sin(timestamp * 0.002) * 0.1;
             }
 
-            updateParticles();
-            updateInfoUI();
+            // 更新 UI
+            debugDiv.innerText = debugMsg;
+
+            // 2. 更新粒子
+            updateParticles(timestamp);
 
             renderer.render(scene, camera);
         }
 
-        function updateHandLogic(hand, frame, refSpace) {
-            handVisualGroup.visible = true;
-            
-            // 获取关键关节
-            // 0:Wrist, 9:Middle-MCP(掌心附近), 12:Middle-Tip
-            const wristJoint = hand.get('wrist');
-            const palmJoint = hand.get('middle-finger-metacarpal');
-            const tipJoints = ['index-finger-tip', 'middle-finger-tip', 'ring-finger-tip', 'pinky-finger-tip'];
-
-            const wristPose = frame.getJointPose(wristJoint, refSpace);
-            const palmPose = frame.getJointPose(palmJoint, refSpace);
-            
-            if (!wristPose || !palmPose) return;
-
-            // 1. 更新手部可视化 (仅显示关节，简单点)
-            jointsMesh[0].position.copy(wristPose.transform.position);
-            jointsMesh[0].visible = true;
-
-            // 2. 更新目标中心：手心上方 15cm (高一点)
-            targetCenter.copy(palmPose.transform.position).add(new THREE.Vector3(0, 0.15, 0));
-
-            // 3. 计算“张开度” (Average Distance from Tips to Wrist)
-            let totalDist = 0;
-            let count = 0;
-            
-            for(let name of tipJoints) {
-                const joint = hand.get(name);
-                const pose = frame.getJointPose(joint, refSpace);
-                if(pose) {
-                    totalDist += pose.transform.position.distanceTo(wristPose.transform.position);
-                    count++;
-                }
-            }
-            const avgDist = count > 0 ? totalDist / count : 0;
-            
-            // 保存给 UI 显示，方便你调试
-            debugHandOpenness = avgDist;
-
-            // === 修正点：阈值调整 ===
-            // 以前可能太严格了，现在放宽
-            // 握拳通常 < 0.10
-            // 爪子通常 0.10 - 0.15
-            // 张开通常 > 0.15
-            
-            if (avgDist < 0.10) { 
-                // 握拳 -> 重置
-                currentState = STATE.IDLE;
-                isGathering = false;
-            } else if (avgDist > 0.16) {
-                // 完全张开 -> 小球
-                currentState = STATE.SMALL_BALL;
-                targetRadius = 0.04; // 很小
-                isGathering = true;
-            } else {
-                // 介于中间 -> 大球
-                currentState = STATE.BIG_BALL;
-                targetRadius = 0.15; // 较大
-                isGathering = true;
-            }
-        }
-
-        function updateParticles() {
+        function updateParticles(timestamp) {
             const positions = particleSystem.geometry.attributes.position.array;
-            const time = performance.now() * 0.001;
-            
-            // 旋转速度
-            let rotSpeed = 8.0; // 默认非常快
-            if (currentState === STATE.SMALL_BALL) rotSpeed = 15.0; // 极速
+            const time = timestamp * 0.001;
 
             for (let i = 0; i < PARTICLE_COUNT; i++) {
                 const i3 = i * 3;
                 const currentPos = new THREE.Vector3(positions[i3], positions[i3+1], positions[i3+2]);
                 
-                if (isGathering) {
-                    // === 汇聚状态 ===
+                if (currentState === STATE.GATHER) {
+                    // === 聚集模式 ===
                     const phi = Math.acos(-1 + (2 * i) / PARTICLE_COUNT);
                     const theta = Math.sqrt(PARTICLE_COUNT * Math.PI) * phi;
+
+                    // 螺旋丸核心算法
+                    const r = gatherRadius * (0.8 + Math.random()*0.4);
                     
-                    // 螺旋丸形状
-                    const r = targetRadius * (0.8 + Math.random()*0.4); // 表面厚度变化
-                    
-                    // 基础球坐标
                     const tx = r * Math.cos(theta) * Math.sin(phi);
                     const ty = r * Math.sin(theta) * Math.sin(phi);
                     const tz = r * Math.cos(phi);
 
-                    // 旋转变换
-                    const t = time * rotSpeed;
+                    // 旋转
+                    const t = time * spinSpeed;
                     const rotX = tx * Math.cos(t) - tz * Math.sin(t);
                     const rotZ = tx * Math.sin(t) + tz * Math.cos(t);
 
-                    const target = new THREE.Vector3(rotX, ty, rotZ).add(targetCenter);
+                    const target = new THREE.Vector3(rotX, ty, rotZ).add(targetPosition);
                     
-                    // 快速跟随
-                    currentPos.lerp(target, 0.15);
+                    // 快速汇聚
+                    currentPos.lerp(target, 0.1);
 
                 } else {
-                    // === IDLE (握拳/重置) 状态 ===
-                    // 修正点：粒子在我周围自由飘散
+                    // === IDLE / 重置模式 ===
+                    // 粒子应该在空中自由飘荡，而不是消失
                     
-                    // 简单的“环境噪音”运动
+                    // 给每个粒子一个基于 Perlin Noise 感觉的随机浮动
                     currentPos.x += Math.sin(time + i) * 0.002;
-                    currentPos.y += Math.cos(time + i * 0.5) * 0.002;
-                    currentPos.z += Math.sin(time + i * 0.2) * 0.002;
+                    currentPos.y += Math.cos(time * 0.5 + i) * 0.002;
+                    currentPos.z += Math.sin(time * 0.2 + i) * 0.002;
+
+                    // 如果当前位置距离“参照中心”太远（比如之前粒子飞到了手那边，现在手放下了）
+                    // 我们让粒子慢慢飘回正前方，或者就在当前位置散开
                     
-                    // 如果因为之前的汇聚，粒子聚在一起了，给它们一个斥力炸开
-                    // 或者如果粒子在手附近（被手吸引过），让它们慢慢飘回环境里
+                    // 这里的逻辑是：如果没手，粒子就在它们当前位置慢慢扩散，不要瞬移
+                    // 只是加一点点向外的斥力，防止它们聚成一团
+                    // 但为了防止飞出天际，加一个弱吸力把它们拉回 (0, 1.6, -1)
                     
-                    // 定义一个环境盒子 (以 0, 1.6, 0 为中心，即人头附近)
-                    const envCenter = new THREE.Vector3(0, 1.6, 0); 
-                    
-                    // 如果粒子距离环境中心太远，或距离手太近，慢慢飘回环境位置
-                    if (currentPos.distanceTo(targetCenter) < 0.5) {
-                        // 斥力：被推开
-                        const dir = new THREE.Vector3().subVectors(currentPos, targetCenter).normalize();
-                        currentPos.add(dir.multiplyScalar(0.05)); // 快速炸开
-                    } else {
-                         // 柔和回归环境
-                        const home = new THREE.Vector3(
-                            (Math.random()-0.5)*4,
-                            (Math.random()-0.5)*2 + 1.6,
-                            (Math.random()-0.5)*4
-                        );
-                        // 极慢的复位 (0.005)
-                        currentPos.lerp(home, 0.005);
+                    const home = new THREE.Vector3(0, 1.6, -1);
+                    if (currentPos.distanceTo(home) > 1.5) {
+                        currentPos.lerp(home, 0.01); // 慢慢拉回来
                     }
                 }
 
@@ -358,25 +329,10 @@
                 positions[i3+1] = currentPos.y;
                 positions[i3+2] = currentPos.z;
             }
+
             particleSystem.geometry.attributes.position.needsUpdate = true;
         }
 
-        function updateInfoUI() {
-            const info = document.getElementById('info');
-            if (!renderer.xr.isPresenting) {
-                info.innerText = "准备就绪\n请点击屏幕中间按钮";
-                return;
-            }
-
-            // === 修正点：实时显示数据 ===
-            const distStr = debugHandOpenness.toFixed(3); // 显示3位小数
-            let stateStr = "未知";
-            if (currentState === STATE.IDLE) stateStr = "● 待机/飘散 (握拳)";
-            else if (currentState === STATE.BIG_BALL) stateStr = "● 汇聚 (爪子)";
-            else if (currentState === STATE.SMALL_BALL) stateStr = "● 压缩 (张开)";
-
-            info.innerText = `左手状态: ${stateStr}\n手势数值: ${distStr}m\n(握拳<0.10 | 张开>0.16)`;
-        }
     </script>
 </body>
 </html>
