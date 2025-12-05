@@ -1,85 +1,440 @@
 <!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <title>Galaxy XR Scouter</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Dragon Ball AR Scouter</title>
     <style>
-      body, html {
-        background-color: transparent;
-        overflow: hidden;
-        font-family: 'Orbitron', sans-serif;
-        width: 100%;
-        height: 100%;
-        margin: 0;
-        padding: 0;
-        touch-action: none; /* Prevent pinch zoom gestures in XR */
-      }
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
 
-      /* CRT Scanline Effect */
-      .scanlines {
-        background: linear-gradient(
-          to bottom,
-          rgba(255,255,255,0),
-          rgba(255,255,255,0) 50%,
-          rgba(0,0,0,0.2) 50%,
-          rgba(0,0,0,0.2)
-        );
-        background-size: 100% 4px;
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        pointer-events: none;
-        z-index: 10;
-      }
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: transparent;
+            font-family: 'VT323', monospace;
+        }
 
-      /* Screen Flicker */
-      @keyframes flicker {
-        0% { opacity: 0.97; }
-        5% { opacity: 0.95; }
-        10% { opacity: 0.9; }
-        15% { opacity: 0.95; }
-        100% { opacity: 0.97; }
-      }
-      .flicker-effect {
-        animation: flicker 0.15s infinite;
-      }
+        /* AR 启动按钮 */
+        #ar-button {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 12px 24px;
+            border: 2px solid #00ff00;
+            background: rgba(0, 0, 0, 0.5);
+            color: #00ff00;
+            font-size: 18px;
+            font-weight: bold;
+            border-radius: 4px;
+            cursor: pointer;
+            z-index: 999;
+        }
 
-      /* Speed Lines / Focus Effect */
-      .speed-lines {
-        background: radial-gradient(circle, transparent 40%, rgba(0, 50, 0, 0.4) 90%),
-                    repeating-conic-gradient(from 0deg, transparent 0deg, transparent 2deg, rgba(0, 255, 0, 0.05) 3deg, transparent 4deg);
-      }
+        /* 战斗力探测器 UI 覆盖层 */
+        #ui-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none; /* 让点击穿透到 AR 场景 */
+            display: none;
+            box-sizing: border-box;
+        }
 
-      /* Alien Glyphs font fallback */
-      .alien-font {
-        font-family: 'Share Tech Mono', monospace;
-        letter-spacing: -2px;
-        text-transform: uppercase;
-      }
+        /* 左侧装饰 */
+        .scouter-frame {
+            position: absolute;
+            top: 10%;
+            left: 5%;
+            width: 90%;
+            height: 80%;
+            border-left: 5px solid rgba(0, 255, 0, 0.6);
+            border-radius: 20px 0 0 20px;
+            box-shadow: inset 10px 0 20px rgba(0, 255, 0, 0.2);
+        }
+
+        /* 瞄准三角形 (UI层) */
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 40px;
+            height: 40px;
+            transform: translate(-50%, -50%);
+            border: 2px solid rgba(0, 255, 0, 0.5);
+            border-radius: 50%;
+        }
+        
+        #crosshair::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 0; 
+            height: 0; 
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-bottom: 15px solid #00ff00;
+        }
+
+        /* 战斗力数值区域 */
+        #power-display {
+            position: absolute;
+            top: 20%;
+            right: 15%;
+            color: #00ff00;
+            text-shadow: 0 0 5px #00ff00;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+        }
+
+        .label {
+            font-size: 24px;
+            opacity: 0.8;
+        }
+
+        #power-value {
+            font-size: 80px;
+            line-height: 80px;
+            letter-spacing: 5px;
+        }
+
+        /* 状态提示 */
+        #status-msg {
+            position: absolute;
+            bottom: 25%;
+            width: 100%;
+            text-align: center;
+            color: #00ff00;
+            font-size: 24px;
+            text-transform: uppercase;
+            animation: blink 1s infinite;
+        }
+
+        /* 龙珠符号装饰 */
+        .glyphs {
+            font-size: 20px;
+            word-break: break-all;
+            width: 200px;
+            text-align: right;
+            opacity: 0.5;
+            margin-top: 10px;
+        }
+
+        @keyframes blink {
+            0% { opacity: 0.3; }
+            50% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+
+        /* 高能反应变红 */
+        .high-energy {
+            color: #ff3333 !important;
+            text-shadow: 0 0 10px #ff0000 !important;
+            border-color: #ff3333 !important;
+        }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
-    "lucide-react": "https://aistudiocdn.com/lucide-react@^0.555.0",
-    "@tensorflow/tfjs": "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/+esm",
-    "@tensorflow-models/body-pix": "https://cdn.jsdelivr.net/npm/@tensorflow-models/body-pix@2.2.1/+esm"
-  }
-}
-</script>
 </head>
-  <body>
-    <div id="root" class="w-full h-full"></div>
-  </body>
+<body>
+
+    <button id="ar-button">START AR SCOUTER</button>
+
+    <div id="ui-overlay">
+        <div class="scouter-frame"></div>
+        <div id="crosshair"></div>
+        <div id="power-display">
+            <div class="label">POWER LEVEL</div>
+            <div id="power-value">0</div>
+            <div class="glyphs">⍙⍝⍺⍵ ⍫⍱⍯ ⌬⌭⌮</div>
+        </div>
+        <div id="status-msg">SEARCHING TARGET...</div>
+    </div>
+
+    <!-- 引入 Three.js -->
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.150.0/build/three.module.js';
+        import { ARButton } from 'https://unpkg.com/three@0.150.0/examples/jsm/webxr/ARButton.js';
+        import { XRControllerModelFactory } from 'https://unpkg.com/three@0.150.0/examples/jsm/webxr/XRControllerModelFactory.js';
+        import { OculusHandModelFactory } from 'https://unpkg.com/three@0.150.0/examples/jsm/webxr/OculusHandModelFactory.js';
+
+        let container;
+        let camera, scene, renderer;
+        let controller1, controller2;
+        let controllerGrip1, controllerGrip2;
+        let hand1, hand2;
+
+        let reticle;
+        let hitTestSource = null;
+        let hitTestSourceRequested = false;
+
+        // 逻辑变量
+        let isLocked = false;
+        let analysisInterval = null;
+        let currentPower = 0;
+        let targetPower = 0;
+        let targetMesh = null; // 模拟的轮廓
+
+        const MAX_POWER = 10000;
+        const UI_OVERLAY = document.getElementById('ui-overlay');
+        const POWER_VAL = document.getElementById('power-value');
+        const STATUS_MSG = document.getElementById('status-msg');
+        const UI_ELEMENTS = document.querySelectorAll('#power-display, .scouter-frame, #crosshair');
+
+        init();
+        animate();
+
+        function init() {
+            container = document.createElement('div');
+            document.body.appendChild(container);
+
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+            // 灯光
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+            light.position.set(0.5, 1, 0.25);
+            scene.add(light);
+
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            container.appendChild(renderer.domElement);
+
+            // AR 按钮配置
+            const btn = ARButton.createButton(renderer, { 
+                requiredFeatures: ['hit-test'],
+                optionalFeatures: ['dom-overlay', 'hands-tracking'], // 请求手势追踪
+                domOverlay: { root: document.body }
+            });
+            document.getElementById('ar-button').replaceWith(btn);
+            
+            // 监听进入AR会话
+            btn.addEventListener('click', () => {
+                setTimeout(() => {
+                   if(renderer.xr.isPresenting) {
+                       UI_OVERLAY.style.display = 'block';
+                   }
+                }, 1000);
+            });
+
+            // --- 目标指示器 (Reticle) ---
+            // 这是一个3D三角形，贴合在物体表面
+            const reticleGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+            const reticleMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+            reticle = new THREE.Mesh(reticleGeo, reticleMat);
+            reticle.matrixAutoUpdate = false;
+            reticle.visible = false;
+            scene.add(reticle);
+
+            // --- 控制器与手势 ---
+            // 配置手势追踪，用来检测食指动作
+            const handModelFactory = new OculusHandModelFactory();
+
+            function setupHand(index) {
+                const hand = renderer.xr.getHand(index);
+                hand.add(handModelFactory.createHandModel(hand));
+                scene.add(hand);
+                return hand;
+            }
+
+            hand1 = setupHand(0);
+            hand2 = setupHand(1);
+
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // --- 核心逻辑：检测食指勾手 ---
+        function detectFingerHook(hand) {
+            if (!hand || !hand.joints) return false;
+
+            const indexTip = hand.joints['index-finger-tip'];
+            const indexPhalanx = hand.joints['index-finger-phalanx-proximal']; // 指关节
+            const wrist = hand.joints['wrist'];
+
+            if (indexTip && indexPhalanx && wrist) {
+                // 简单的逻辑：如果指尖到手腕的距离 < 指关节到手腕的距离 (说明手指弯曲了)
+                // 且手是可见的
+                const dTip = indexTip.position.distanceTo(wrist.position);
+                const dPhalanx = indexPhalanx.position.distanceTo(wrist.position);
+                
+                // 阈值可能需要微调，0.08米通常是手掌长度的一部分
+                // 这里加一个条件：必须在“扫描模式”下才检测
+                if (dTip < dPhalanx && !isLocked) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // --- 核心逻辑：开始分析 ---
+        function startAnalysis(position, distance) {
+            if (isLocked) return;
+            isLocked = true;
+            
+            // 1. 创建轮廓 (Wireframe Mesh)
+            // 根据距离估算大小，距离越近，假定物体越大
+            const size = Math.max(0.3, distance * 0.3); // 简单的模拟算法
+            const geometry = new THREE.IcosahedronGeometry(size, 1);
+            const material = new THREE.MeshBasicMaterial({ 
+                color: 0x00ff00, 
+                wireframe: true,
+                transparent: true,
+                opacity: 0.5
+            });
+            
+            targetMesh = new THREE.Mesh(geometry, material);
+            targetMesh.position.copy(position);
+            scene.add(targetMesh);
+
+            // 2. 隐藏探测三角形，改变UI状态
+            reticle.visible = false;
+            STATUS_MSG.innerText = "TARGET LOCKED - ANALYZING";
+            STATUS_MSG.style.color = "#ffff00";
+
+            // 3. 计算战斗力
+            // 算法：基础分 + (10/距离) * 随机系数。最大 10000。
+            let rawPower = 1000 + (5000 / distance) + Math.random() * 3000;
+            targetPower = Math.min(Math.round(rawPower), MAX_POWER);
+
+            // 4. 数字跳动动画
+            clearInterval(analysisInterval);
+            let steps = 0;
+            const audio = new AudioContext(); // 如果需要可以在这里加beep音效
+
+            analysisInterval = setInterval(() => {
+                steps++;
+                // 随机跳动
+                let tempVal = Math.floor(Math.random() * 9000);
+                POWER_VAL.innerText = tempVal;
+
+                // 轮廓旋转特效
+                if(targetMesh) {
+                    targetMesh.rotation.y += 0.1;
+                    targetMesh.rotation.z += 0.05;
+                }
+
+                // 2秒后出结果
+                if (steps > 40) { // approx 2 seconds
+                    clearInterval(analysisInterval);
+                    finalizeResult();
+                }
+            }, 50);
+        }
+
+        function finalizeResult() {
+            POWER_VAL.innerText = targetPower;
+            
+            if (targetPower > 8000) {
+                STATUS_MSG.innerText = "IT'S OVER 9000!!!";
+                applyHighEnergyStyle(true);
+            } else {
+                STATUS_MSG.innerText = "ANALYSIS COMPLETE";
+                applyHighEnergyStyle(false);
+            }
+
+            // 5秒后重置
+            setTimeout(resetScouter, 5000);
+        }
+
+        function resetScouter() {
+            isLocked = false;
+            currentPower = 0;
+            POWER_VAL.innerText = "0";
+            STATUS_MSG.innerText = "SEARCHING TARGET...";
+            STATUS_MSG.style.color = "#00ff00";
+            applyHighEnergyStyle(false);
+            
+            if (targetMesh) {
+                scene.remove(targetMesh);
+                targetMesh = null;
+            }
+        }
+
+        function applyHighEnergyStyle(isHigh) {
+            const color = isHigh ? '#ff3333' : '#00ff00';
+            UI_ELEMENTS.forEach(el => {
+                el.style.color = color;
+                el.style.textShadow = `0 0 5px ${color}`;
+                if(el.style.borderColor) el.style.borderColor = color;
+            });
+            if(targetMesh) {
+                targetMesh.material.color.setHex(isHigh ? 0xff0000 : 0x00ff00);
+            }
+        }
+
+        // --- 渲染循环 ---
+        function animate() {
+            renderer.setAnimationLoop(render);
+        }
+
+        function render(timestamp, frame) {
+            if (frame) {
+                // 1. 获取参考空间
+                const referenceSpace = renderer.xr.getReferenceSpace();
+                const session = renderer.xr.getSession();
+
+                // 2. 射线检测 (Hit Test) - 寻找现实世界表面
+                if (hitTestSourceRequested === false) {
+                    session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+                        session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+                            hitTestSource = source;
+                        });
+                    });
+                    session.addEventListener('end', function () {
+                        hitTestSourceRequested = false;
+                        hitTestSource = null;
+                    });
+                    hitTestSourceRequested = true;
+                }
+
+                if (hitTestSource && !isLocked) {
+                    const hitTestResults = frame.getHitTestResults(hitTestSource);
+
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        reticle.visible = true;
+                        // 将Reticle移动到检测点
+                        reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                    } else {
+                        reticle.visible = false;
+                    }
+                }
+
+                // 3. 手势检测 (勾手触发)
+                if (!isLocked && reticle.visible) {
+                    // 检测左右手
+                    if (detectFingerHook(hand1) || detectFingerHook(hand2)) {
+                        // 获取Reticle位置用于计算距离
+                        const reticlePos = new THREE.Vector3();
+                        reticlePos.setFromMatrixPosition(reticle.matrix);
+                        const camPos = camera.position;
+                        const dist = camPos.distanceTo(reticlePos);
+
+                        startAnalysis(reticlePos, dist);
+                    }
+                }
+                
+                // 渲染动态轮廓
+                if (isLocked && targetMesh) {
+                    targetMesh.rotation.y += 0.02;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
 </html>
