@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>XR 螺旋丸 (体感投掷版)</title>
+    <title>XR 螺旋丸 (完美投掷修正版)</title>
     <style>
         body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
         #launcher {
@@ -36,10 +36,9 @@
     <button id="btn-enter">启动系统</button>
     <div class="guide">
         ⏳ <b>前3秒安全锁定</b><br>
-        🌀 <b>左手摊开</b>：凝聚螺旋丸 (指尖悬浮)<br>
-        💨 <b>左手用力甩/推</b>：发射螺旋丸<br>
-        🔺 <b>双手框住</b>：气功炮<br>
-        👊 <b>握拳</b>：重置所有
+        🌀 <b>左手摊开</b>：凝聚螺旋丸 (悬浮)<br>
+        💨 <b>凝聚后用力甩</b>：发射螺旋丸<br>
+        👊 <b>握拳</b>：重置 (再摊开可重新凝聚)
     </div>
 </div>
 
@@ -59,20 +58,20 @@
     const originalPos = new Float32Array(PARTICLE_COUNT * 3);
     const phases = new Float32Array(PARTICLE_COUNT);
 
-    // 手部信息与物理计算
     const handsInfo = {
         left: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null },
         right: { active: false, pos: new THREE.Vector3(), wrist: new THREE.Vector3(), thumb: new THREE.Vector3(), index: new THREE.Vector3(), model: null }
     };
 
-    // 投掷物理变量
-    let lastLeftPos = new THREE.Vector3(); // 上一帧左手位置
-    let leftHandVelocity = new THREE.Vector3(); // 左手速度向量
-    let thrownBallPos = new THREE.Vector3(); // 投掷出的球的位置
-    let thrownBallVel = new THREE.Vector3(); // 投掷出的球的速度
+    // 物理相关变量
+    let lastLeftPos = new THREE.Vector3();
+    let leftHandVelocity = new THREE.Vector3();
+    let thrownBallPos = new THREE.Vector3();
+    let thrownBallVel = new THREE.Vector3();
+    let chargingTimer = 0; // 记录球凝聚了多久
 
-    let appState = 'IDLE'; // IDLE, CHARGING, THROWN, FIRING(气功炮)
-    let fireDir = new THREE.Vector3(0,0,-1); // 气功炮方向
+    let appState = 'IDLE'; // IDLE, CHARGING, THROWN, FIRING
+    let fireDir = new THREE.Vector3(0,0,-1);
     let kikohoCenter = new THREE.Vector3();
     const clock = new THREE.Clock();
 
@@ -109,7 +108,6 @@
         });
 
         stage = new THREE.Group();
-        stage.position.set(0, 0, 0); 
         scene.add(stage);
 
         const box = new THREE.Mesh(
@@ -186,7 +184,7 @@
         });
     }
 
-    function updateHandInfo(hand, info, isLeft) {
+    function updateHandInfo(hand, info, isLeft, delta) {
         info.active = false;
         if (hand.joints && hand.joints['wrist'] && 
             hand.joints['thumb-tip'] && hand.joints['index-finger-tip']) {
@@ -197,37 +195,35 @@
                 hand.joints['thumb-tip'].getWorldPosition(info.thumb);
                 hand.joints['index-finger-tip'].getWorldPosition(info.index);
                 
-                // === 指尖远距悬浮逻辑 ===
+                // === 你的悬浮位置逻辑 (保留不动) ===
                 const vHand = new THREE.Vector3().subVectors(info.index, info.wrist);
                 const vThumb = new THREE.Vector3().subVectors(info.thumb, info.wrist);
-                // 1. 手指根部
                 const fingerBase = new THREE.Vector3().copy(info.wrist).add(vHand.clone().multiplyScalar(0.70));
-                // 2. 法线反转 (指向手心)
                 const vNormal = new THREE.Vector3().crossVectors(vThumb, vHand).normalize().multiplyScalar(-1);
-                // 3. 悬浮 12cm
                 info.pos.copy(fingerBase).add(vNormal.multiplyScalar(0.12));
 
-                // === 计算左手速度 (用于投掷检测) ===
-                if (isLeft) {
-                    const delta = clock.getDelta(); // 获取帧间隔
-                    if (delta > 0) {
-                        // 速度 = (当前位置 - 上一帧位置) / 时间
+                // === 修正后的速度计算 ===
+                if (isLeft && delta > 0) {
+                    // 如果上一帧位置是0(刚开始追踪)，则不计算速度，防止瞬移
+                    if (lastLeftPos.lengthSq() > 0.001) {
                         const disp = new THREE.Vector3().subVectors(info.pos, lastLeftPos);
-                        leftHandVelocity.copy(disp).divideScalar(delta);
-                        
-                        // 平滑处理上一帧位置
-                        lastLeftPos.copy(info.pos);
+                        // 平滑速度，避免抖动误触
+                        const currentVel = disp.divideScalar(delta);
+                        leftHandVelocity.lerp(currentVel, 0.5); 
+                    } else {
+                        leftHandVelocity.set(0,0,0);
                     }
+                    lastLeftPos.copy(info.pos);
                 }
             }
         }
     }
 
-    function updateState() {
+    function updateState(delta) {
         let leftColor = 0xffffff;
         let rightColor = 0xffffff;
 
-        // 1. 握拳重置
+        // 1. 握拳重置 (最高优先级)
         let isFist = false;
         if(hand1.joints && hand1.joints['middle-finger-tip']) {
              const d = hand1.joints['middle-finger-tip'].position.distanceTo(hand1.joints['wrist'].position);
@@ -235,16 +231,16 @@
         }
         if (isFist) {
             appState = 'IDLE';
+            chargingTimer = 0;
             fixHandMaterial(handsInfo.left.model, 0xff0000);
             fixHandMaterial(handsInfo.right.model, 0xff0000);
             return;
         }
 
-        // 2. 气功炮 (双手)
+        // 2. 气功炮 (Tri-Beam)
         if (handsInfo.left.active && handsInfo.right.active && appState !== 'THROWN') {
             const thumbDist = handsInfo.left.thumb.distanceTo(handsInfo.right.thumb);
             const indexDist = handsInfo.left.index.distanceTo(handsInfo.right.index);
-            
             if (thumbDist < 0.08 && indexDist < 0.08) {
                 appState = 'FIRING';
                 kikohoCenter.set(0,0,0)
@@ -262,33 +258,43 @@
 
         // 3. 螺旋丸逻辑
         if (handsInfo.left.active && appState !== 'FIRING') {
-            // 如果已经是 THROWN 状态，检查是否飞太远，如果飞太远就重置
+            
+            // 飞行状态检查：飞太远就重置
             if (appState === 'THROWN') {
-                leftColor = 0x00ff00; // 发射后手变绿
+                leftColor = 0x00ff00;
                 const dist = thrownBallPos.distanceTo(camera.position);
-                if (dist > 50) appState = 'IDLE'; // 飞出50米后消失
+                if (dist > 50) {
+                    appState = 'IDLE'; // 飞远了，重置状态
+                }
             } 
             else {
-                // 判断是否摊开
+                // 检查是否摊手
                 const d = hand1.joints['index-finger-tip'].position.distanceTo(hand1.joints['wrist'].position);
+                
                 if (d > 0.12) { 
+                    // 手摊开了
                     appState = 'CHARGING';
                     leftColor = 0x00ffff;
+                    
+                    chargingTimer += delta;
 
-                    // === 检测投掷动作 ===
-                    // 速度阈值：2.5 m/s (如果你觉得难触发，把这个数字改小，比如 1.5)
+                    // === 投掷检测 (修复版) ===
+                    // 1. 必须先聚球 0.3 秒以上 (防止球一生成就飞走)
+                    // 2. 速度超过 2.0
                     const speed = leftHandVelocity.length();
-                    if (speed > 2.5) {
+                    if (chargingTimer > 0.3 && speed > 2.0) {
                         appState = 'THROWN';
-                        // 设定球的初始位置为当前悬浮点
                         thrownBallPos.copy(handsInfo.left.pos);
-                        // 设定球的飞行速度 = 手的速度 * 1.2 (稍微加速)
-                        thrownBallVel.copy(leftHandVelocity).multiplyScalar(1.2);
-                        // 限制最大飞行速度防止瞬移
-                        thrownBallVel.clampLength(0, 15);
+                        thrownBallVel.copy(leftHandVelocity).multiplyScalar(1.3); // 加点速度
+                        thrownBallVel.clampLength(0, 20); // 限速
+                        chargingTimer = 0;
                     }
                 } else {
-                    appState = 'IDLE';
+                    // 手没摊开
+                    if (appState === 'CHARGING') {
+                        appState = 'IDLE';
+                        chargingTimer = 0;
+                    }
                 }
             }
         }
@@ -298,11 +304,14 @@
     }
 
     function render() {
+        // 将 delta 获取放在最外层，保证全局一致
+        const delta = clock.getDelta();
         const time = clock.getElapsedTime();
         
         if (time < 3.0) {
             fixHandMaterial(handsInfo.left.model, 0x555555);
             fixHandMaterial(handsInfo.right.model, 0x555555);
+            // 保持静止状态
             for(let i=0; i<PARTICLE_COUNT; i++) {
                 dummy.position.set(originalPos[i*3], originalPos[i*3+1], originalPos[i*3+2]);
                 dummy.scale.set(1,1,1);
@@ -311,20 +320,21 @@
             }
             meshSystem.instanceMatrix.needsUpdate = true;
             renderer.render(scene, camera);
-            lastLeftPos.set(0,0,0); // 初始化位置防止第一帧速度爆炸
             return;
         }
 
         const friction = 0.90; 
         
-        updateHandInfo(hand1, handsInfo.left, true);
-        updateHandInfo(hand2, handsInfo.right, false);
-        updateState();
+        // 传入 delta
+        updateHandInfo(hand1, handsInfo.left, true, delta);
+        updateHandInfo(hand2, handsInfo.right, false, delta);
+        updateState(delta);
 
-        // 更新抛出球的位置
+        // 更新飞行球位置
         if (appState === 'THROWN') {
-            // 球按照惯性移动，稍微加一点重力下坠感会更真实，也可以不加
-            thrownBallPos.add(thrownBallVel.clone().multiplyScalar(0.016)); 
+            thrownBallPos.add(thrownBallVel.clone().multiplyScalar(delta));
+            // 微微重力
+            thrownBallVel.y -= 0.5 * delta;
         }
 
         const cIdle = new THREE.Color(0xaaddff); 
@@ -348,17 +358,24 @@
             } else if (appState === 'CHARGING' || appState === 'THROWN') {
                 // --- 螺旋丸 (手持 或 飞行) ---
                 
-                // 关键点：如果是 THROWN，目标中心是 thrownBallPos；如果是 CHARGING，目标是手的位置
-                let target = (appState === 'THROWN') ? thrownBallPos : handsInfo.left.pos;
+                let target;
+                if (appState === 'THROWN') {
+                    target = thrownBallPos;
+                    // 飞行时，粒子受到向前的牵引力，防止掉队
+                    vx += (target.x - px) * 0.2; 
+                    vy += (target.y - py) * 0.2;
+                    vz += (target.z - pz) * 0.2;
+                } else {
+                    target = handsInfo.left.pos;
+                }
 
                 const dx = px - target.x;
                 const dy = py - target.y;
                 const dz = pz - target.z;
-                
                 const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
-                const targetRadius = 0.04;
                 
-                // 保持原来的球体聚合物理
+                // 你的经典物理效果
+                const targetRadius = 0.04;
                 if (dist > targetRadius) {
                     const pullStrength = 0.2; 
                     vx -= (dx / dist) * pullStrength;
@@ -376,17 +393,7 @@
                 vy += (Math.random()-0.5) * 0.1 + dx * 0.5;
                 vz += (Math.random()-0.5) * 0.1 - dy * 0.5;
 
-                vx *= 0.6; vy *= 0.6; vz *= 0.6; // 阻尼
-
-                // 如果是飞行状态，粒子整体要加上球的飞行速度，形成拖尾效果
-                if (appState === 'THROWN') {
-                    // 稍微加一点速度让球体跟上中心移动，否则球会散架
-                    // 这里直接加上中心点的位移量是不够的，因为vx/vy是速度
-                    // 我们给粒子施加一个强力牵引向中心移动
-                    vx += (target.x - px) * 0.1;
-                    vy += (target.y - py) * 0.1;
-                    vz += (target.z - pz) * 0.1;
-                }
+                vx *= 0.6; vy *= 0.6; vz *= 0.6;
 
                 if (dist < 0.03) meshSystem.setColorAt(i, new THREE.Color(0xffffff)); 
                 else meshSystem.setColorAt(i, cCharge);
