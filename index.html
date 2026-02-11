@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 无限火力版</title>
+    <title>Galaxy XR 终极御剑·完全体</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: "Microsoft YaHei", sans-serif; }
         
@@ -14,7 +14,7 @@
             z-index: 9999; color: #fff;
         }
 
-        h1 { font-size: 2.0rem; color: #FFD700; text-shadow: 0 0 10px #D50000; letter-spacing: 2px; margin-bottom: 10px; }
+        h1 { font-size: 2.2rem; color: #FFD700; text-shadow: 0 0 10px #D62828; letter-spacing: 2px; margin-bottom: 10px; }
         .subtitle { font-size: 1rem; color: #ccc; margin-bottom: 30px; opacity: 0.8; }
 
         #start-btn {
@@ -22,7 +22,9 @@
             color: #fff; background: linear-gradient(to right, #D62828, #B71C1C);
             border: 2px solid #FFD700; border-radius: 50px; cursor: pointer;
             box-shadow: 0 0 20px rgba(214, 40, 40, 0.4);
+            transition: 0.3s;
         }
+        #start-btn:active { transform: scale(0.95); }
 
         .guide-grid {
             margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
@@ -30,9 +32,9 @@
         }
         .guide-card {
             background: rgba(255,255,255,0.05); border: 1px solid rgba(255,215,0,0.2);
-            padding: 10px; border-radius: 10px; text-align: center; font-size: 0.8rem;
+            padding: 10px; border-radius: 10px; text-align: center; font-size: 0.9rem;
         }
-        .icon { font-size: 1.2rem; display: block; margin-bottom: 5px; }
+        .icon { font-size: 1.5rem; display: block; margin-bottom: 5px; }
 
         #ar-status {
             position: absolute; top: 20px; width: 100%; text-align: center;
@@ -45,14 +47,15 @@
 <body>
 
     <div id="overlay">
-        <h1>无限·散财流</h1>
+        <h1>御剑·发红包</h1>
         <div class="subtitle">Galaxy XR 增强现实体验</div>
         <button id="start-btn" disabled>环境检测中...</button>
         
         <div class="guide-grid">
-            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>掌心聚能 (吸附)</div>
-            <div class="guide-card"><span class="icon">👉</span><b>剑指</b><br>无限连射 (背后生成)</div>
-            <div class="guide-card"><span class="icon">✊</span><b>握拳</b><br>全屏重置 (归位)</div>
+            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>掌心聚能 (护盾)</div>
+            <div class="guide-card"><span class="icon">☝️</span><b>剑指朝上</b><br>指尖蓄力 (生成)</div>
+            <div class="guide-card"><span class="icon">👉</span><b>剑指前刺</b><br>发射红包 (+100¥)</div>
+            <div class="guide-card"><span class="icon">✊</span><b>握拳</b><br>全屏重置</div>
         </div>
     </div>
 
@@ -73,11 +76,11 @@
         let container, camera, scene, renderer;
         let hand;
         
-        // 核心变量
-        const BILLS = [];
-        const BILL_COUNT = 50; 
+        const PACKETS = [];
+        const PACKET_COUNT = 40; 
         const TEXTS = []; 
         
+        // 状态变量
         let currentMode = 'IDLE'; 
         let reticle; 
         let hitTestSource = null;
@@ -85,55 +88,45 @@
         
         let lastTime = 0;
         let fireRateTimer = 0;
-
-        // UI
+        
+        // UI 绑定
         const btn = document.getElementById('start-btn');
         const overlay = document.getElementById('overlay');
         const statusText = document.getElementById('ar-status');
 
         init();
 
-        // --- 1. 人民币纹理 (保持高清) ---
-        function createRMBTexture() {
+        // --- 1. 经典红底金福红包 ---
+        function createRedPacketTexture() {
             const canvas = document.createElement('canvas');
-            canvas.width = 512; canvas.height = 256;
+            canvas.width = 256; canvas.height = 360;
             const ctx = canvas.getContext('2d');
             
-            const grd = ctx.createLinearGradient(0, 0, 512, 0);
-            grd.addColorStop(0, '#E040FB'); 
-            grd.addColorStop(0.2, '#D50000'); 
-            grd.addColorStop(1, '#FF80AB'); 
-            ctx.fillStyle = grd;
-            ctx.fillRect(0, 0, 512, 256);
+            ctx.fillStyle = '#D62828'; ctx.fillRect(0, 0, 256, 360);
             
-            ctx.strokeStyle = '#fff'; ctx.lineWidth = 4;
-            ctx.strokeRect(10, 10, 492, 236);
+            ctx.strokeStyle = '#F77F00'; ctx.lineWidth = 8;
+            ctx.beginPath(); ctx.moveTo(20, 100); ctx.quadraticCurveTo(128, 160, 236, 100); ctx.stroke();
             
-            ctx.beginPath();
-            ctx.arc(380, 128, 90, 0, Math.PI*2);
-            ctx.fillStyle = 'rgba(255,255,255,0.15)'; ctx.fill();
-
-            ctx.fillStyle = '#FFEB3B'; 
-            ctx.shadowColor = 'rgba(0,0,0,0.5)'; ctx.shadowBlur = 10;
-            ctx.font = "900 110px Arial"; ctx.fillText("100", 40, 150);
+            ctx.fillStyle = '#FCBF49'; ctx.beginPath(); ctx.arc(128, 130, 25, 0, Math.PI * 2); ctx.fill();
             
-            ctx.font = "bold 36px Microsoft YaHei"; ctx.shadowBlur = 2;
-            ctx.fillText("中国人民银行", 40, 50);
-
-            ctx.beginPath(); ctx.fillStyle = '#FFD700';
-            ctx.arc(460, 40, 20, 0, Math.PI*2); ctx.fill();
-
+            ctx.fillStyle = '#D62828'; ctx.font = "bold 30px Microsoft YaHei";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("福", 128, 132);
+            
+            ctx.strokeStyle = '#EAE2B7'; ctx.lineWidth = 4; ctx.strokeRect(10, 10, 236, 340);
+            
             return new THREE.CanvasTexture(canvas);
         }
 
+        // --- 2. 金色 +100¥ ---
         function createTextTexture() {
             const canvas = document.createElement('canvas');
-            canvas.width = 256; canvas.height = 128;
+            canvas.width = 300; canvas.height = 128;
             const ctx = canvas.getContext('2d');
             ctx.font = "bold 80px Arial";
             ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillStyle = "#FFD700"; ctx.strokeStyle = "#D50000";
-            ctx.lineWidth = 6; ctx.strokeText("+100", 128, 64); ctx.fillText("+100", 128, 64);
+            ctx.fillStyle = "#FFD700"; ctx.strokeStyle = "#D50000"; ctx.lineWidth = 4;
+            ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 4;
+            ctx.strokeText("+100¥", 150, 64); ctx.fillText("+100¥", 150, 64);
             return new THREE.CanvasTexture(canvas);
         }
 
@@ -150,33 +143,34 @@
             renderer.xr.enabled = true;
             container.appendChild(renderer.domElement);
 
-            scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 2.0));
-
-            // 准星
-            const reticleGeo = new THREE.RingGeometry(0.04, 0.05, 32);
-            const reticleMat = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); 
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
+            scene.add(hemiLight);
+            
+            // 金色准星
+            const reticleGeo = new THREE.RingGeometry(0.03, 0.04, 32);
+            const reticleMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 }); 
             reticle = new THREE.Mesh(reticleGeo, reticleMat);
             reticle.rotation.x = -Math.PI / 2;
             reticle.visible = false;
             scene.add(reticle);
 
-            // 钞票池
-            const billTex = createRMBTexture();
-            const billGeo = new THREE.PlaneGeometry(0.155, 0.077);
-            const billMat = new THREE.MeshStandardMaterial({ map: billTex, side: THREE.DoubleSide, roughness: 0.6 });
+            // 红包池
+            const rpTex = createRedPacketTexture();
+            const rpGeo = new THREE.PlaneGeometry(0.08, 0.12);
+            const rpMat = new THREE.MeshStandardMaterial({ map: rpTex, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.1 });
 
-            for (let i = 0; i < BILL_COUNT; i++) {
-                const mesh = new THREE.Mesh(billGeo, billMat);
-                resetBillToIdle(mesh, i);
+            for (let i = 0; i < PACKET_COUNT; i++) {
+                const mesh = new THREE.Mesh(rpGeo, rpMat);
+                resetPacketToIdle(mesh, i);
                 scene.add(mesh);
                 
-                BILLS.push({
+                PACKETS.push({
                     mesh: mesh,
-                    state: 'IDLE', // IDLE, PALM_ORBIT, FINGER_GATHER, REAR_SPAWN, FLYING, DONE
-                    velocity: new THREE.Vector3(),
+                    state: 'IDLE', // IDLE, PALM_ORBIT, FINGER_GATHER, FLYING
                     targetPos: new THREE.Vector3(),
-                    gatherOffset: new THREE.Vector3(),
-                    idlePhase: Math.random() * Math.PI * 2
+                    idlePhase: Math.random() * Math.PI * 2,
+                    rotSpeed: 0.5 + Math.random() * 2.0,
+                    gatherOffset: new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2)
                 });
             }
 
@@ -186,7 +180,7 @@
             if ('xr' in navigator) {
                 navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
                     if (supported) {
-                        btn.innerText = "启动·无限火力";
+                        btn.innerText = "启动·御剑发红包";
                         btn.disabled = false;
                         btn.onclick = onStartAR;
                     } else {
@@ -196,11 +190,13 @@
             }
         }
 
-        function resetBillToIdle(mesh, index) {
+        function resetPacketToIdle(mesh, index) {
             const angle = Math.random() * Math.PI * 2;
-            const radius = 0.8 + Math.random() * 0.8; 
-            const y = 1.0 + (Math.random() - 0.5) * 0.8; 
+            const radius = 1.0 + Math.random() * 0.8; 
+            const y = (Math.random() - 0.5) * 1.5; 
+            
             mesh.position.set(Math.cos(angle)*radius, y, Math.sin(angle)*radius);
+            mesh.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
             mesh.visible = true;
         }
 
@@ -235,17 +231,13 @@
             if (renderer.xr.isPresenting) {
                 handleHitTest(frame);
                 handleGestures(dt);
-                updateBills(dt, timestamp);
+                updatePackets(dt, timestamp);
                 updateEffects(dt);
             }
             renderer.render(scene, camera);
         }
 
         function handleHitTest(frame) {
-            if (currentMode !== 'SWORD') {
-                reticle.visible = false;
-                return;
-            }
             const session = renderer.xr.getSession();
             if (!hitTestSourceRequested) {
                 session.requestReferenceSpace('viewer').then((refSpace) => {
@@ -284,84 +276,92 @@
             const dPinkyWrist = pinkyTip.distanceTo(wrist);
             const dThumbIndex = thumbTip.distanceTo(indexTip);
 
-            // --- 状态机切换 ---
-
             // 1. 握拳 (FIST): 重置
             if (dIndexWrist < 0.10 && dPinkyWrist < 0.08) {
                 if (currentMode !== 'IDLE') {
                     currentMode = 'IDLE';
                     statusText.innerText = "状态：全屏重置";
-                    // 强制所有钞票归位
-                    BILLS.forEach((b, i) => {
-                        b.state = 'IDLE';
-                        resetBillToIdle(b.mesh, i);
+                    // 强制所有红包归位 (不含正在飘字的特效)
+                    PACKETS.forEach((p, i) => {
+                        p.state = 'IDLE';
+                        resetPacketToIdle(p.mesh, i);
                     });
                 }
             }
-            // 2. 剑指 (SWORD): 指尖汇聚 + 射击
+            // 2. 剑指 (SWORD) - 蓄力 vs 发射
             else if (dIndexMiddle < 0.04 && dIndexWrist > 0.12 && dPinkyWrist < 0.08) {
-                currentMode = 'SWORD';
-                statusText.innerText = "状态：无限连射 (背后生成 -> 指尖 -> 发射)";
-
-                // 射击计时器
-                fireRateTimer += dt;
-                // 每 0.08 秒发射一张 (高射速)
-                if (fireRateTimer > 0.08) { 
-                    fireRateTimer = 0;
-                    fireOneBill(indexTip, wrist);
+                // 计算手指朝向 (指尖 - 手腕)
+                const pointDir = new THREE.Vector3().subVectors(indexTip, wrist).normalize();
+                
+                // 判定：Y轴分量大 -> 朝上指 -> 蓄力
+                // Z轴分量大 (负值) -> 朝前指 -> 发射
+                // 阈值设为 0.5
+                if (pointDir.y > 0.4) {
+                    currentMode = 'SWORD_GATHER';
+                    statusText.innerText = "状态：指尖蓄力 (自动生成)";
+                    regenerateAmmoIfNeed(indexTip);
+                } else {
+                    currentMode = 'SWORD_SHOOT';
+                    statusText.innerText = "状态：发射！";
+                    
+                    // 射击逻辑
+                    fireRateTimer += dt;
+                    if (fireRateTimer > 0.1) { // 射速
+                        fireRateTimer = 0;
+                        fireOnePacket(indexTip);
+                    }
                 }
             }
-            // 3. 摊手 (PALM): 掌心汇聚
+            // 3. 摊手 (PALM): 护盾 (把这个效果加回来了！)
             else if (dIndexWrist > 0.10 && dPinkyWrist > 0.10 && dThumbIndex > 0.08) {
                 currentMode = 'PALM';
-                statusText.innerText = "状态：掌心聚能 (吸附)";
+                statusText.innerText = "状态：掌心护盾";
+                regenerateAmmoIfNeed(wrist); // 摊手时也补弹，保证有东西转
             }
         }
 
-        function fireOneBill(fingerTipPos, wristPos) {
-            // 确定打击目标
+        // 自动补弹逻辑：如果当前没有可用的红包，就把死掉的复活
+        function regenerateAmmoIfNeed(spawnPos) {
+            // 检查是否有活着的红包
+            const alive = PACKETS.some(p => p.state !== 'DONE' && p.mesh.visible);
+            
+            // 如果活着的太少，复活一批
+            if (!alive) {
+                PACKETS.forEach((p, i) => {
+                    if (!p.mesh.visible) {
+                         p.state = 'IDLE'; // 先复活成 IDLE，下一帧会被吸过去
+                         // 在身体周围复活
+                         resetPacketToIdle(p.mesh, i);
+                    }
+                });
+            }
+        }
+
+        function fireOnePacket(startPos) {
+            // 确定目标
             let target = new THREE.Vector3();
             if (reticle.visible) {
                 target.copy(reticle.position);
             } else {
-                // 盲射：沿指尖方向延伸
-                const aimDir = new THREE.Vector3().subVectors(fingerTipPos, wristPos).normalize();
-                target.copy(fingerTipPos).add(aimDir.multiplyScalar(5.0));
+                // 盲射
+                const wrist = hand.joints['wrist'].position;
+                const aimDir = new THREE.Vector3().subVectors(startPos, wrist).normalize();
+                target.copy(startPos).add(aimDir.multiplyScalar(4.0));
             }
 
-            // --- 逻辑：寻找子弹 ---
-            // 1. 优先找已经聚在指尖的 (FINGER_GATHER)
-            let bill = BILLS.find(b => b.state === 'FINGER_GATHER');
-            
-            // 2. 没有的话，找在半路上的 (REAR_SPAWN) - 刚从背后生成还在飞向指尖的
-            if (!bill) bill = BILLS.find(b => b.state === 'REAR_SPAWN');
+            // 发射优先级：指尖蓄力的 -> 掌心转的 -> 身边飞的
+            let pkt = PACKETS.find(p => p.state === 'FINGER_GATHER');
+            if (!pkt) pkt = PACKETS.find(p => p.state === 'PALM_ORBIT');
+            if (!pkt) pkt = PACKETS.find(p => p.state === 'IDLE');
 
-            // 3. 还没有，找闲置的 (IDLE 或 PALM_ORBIT)
-            if (!bill) bill = BILLS.find(b => b.state === 'IDLE' || b.state === 'PALM_ORBIT');
-
-            // 4. 【无限流核心】如果全都没了 (都打出去了)，就回收一张打完的 (DONE)
-            if (!bill) {
-                bill = BILLS.find(b => b.state === 'DONE');
-                if (bill) {
-                    // 这里的 bill 是回收回来的，先瞬间传送到背后，模拟"新生成"
-                    // 假设 Camera 在原点附近，或者我们直接用 head pose。
-                    // 简化版：传送到指尖后方 0.5米处
-                    const backOffset = new THREE.Vector3().subVectors(wristPos, fingerTipPos).normalize().multiplyScalar(0.8);
-                    bill.mesh.position.copy(wristPos).add(backOffset);
-                    bill.mesh.visible = true;
-                    // 标记为 REAR_SPAWN 状态，让 updateBills 处理它飞向指尖的过程
-                    // 但为了射击流畅，这里直接发射
-                }
-            }
-
-            // 发射！
-            if (bill) {
-                bill.state = 'FLYING';
-                bill.mesh.visible = true;
-                bill.targetPos.copy(target);
-                // 强制对准目标
-                bill.mesh.lookAt(target);
-                bill.mesh.rotateX(-Math.PI/2);
+            if (pkt) {
+                pkt.state = 'FLYING';
+                pkt.mesh.visible = true;
+                pkt.mesh.position.copy(startPos); // 强制从指尖发出
+                pkt.targetPos.copy(target);
+                
+                pkt.mesh.lookAt(target);
+                pkt.mesh.rotateX(-Math.PI/2);
             }
         }
 
@@ -371,119 +371,86 @@
             const sprite = new THREE.Sprite(mat);
             sprite.position.copy(pos);
             sprite.position.y += 0.2;
-            sprite.scale.set(0.4, 0.2, 1);
+            sprite.scale.set(0.6, 0.25, 1);
             scene.add(sprite);
-            TEXTS.push({ sprite: sprite, life: 0.8 });
+            TEXTS.push({ sprite: sprite, life: 1.0 });
         }
 
-        function updateBills(dt, t_ms) {
+        function updatePackets(dt, t_ms) {
             const t = t_ms * 0.001;
             const joints = hand.joints;
-
+            
             let palmCenter = new THREE.Vector3();
             let fingerTip = new THREE.Vector3();
-            let rearSpawnPoint = new THREE.Vector3(); // 背后生成点
 
             if (joints && joints['wrist']) {
-                const wrist = joints['wrist'].position;
-                palmCenter.copy(wrist).add(new THREE.Vector3(0, 0.1, 0));
+                palmCenter.copy(joints['wrist'].position).add(new THREE.Vector3(0, 0.1, 0));
                 fingerTip.copy(joints['index-finger-tip'].position);
-                
-                // 计算背后生成点：手腕后方 1米，上方 0.5米
-                // 这样看起来钱是从你肩膀/脑后飞过来的
-                rearSpawnPoint.copy(wrist).add(new THREE.Vector3(0, 0.5, 0.5)); 
             }
 
-            BILLS.forEach((b, i) => {
-                if (!b.mesh.visible) return;
+            PACKETS.forEach((p, i) => {
+                if (!p.mesh.visible) return;
 
-                // --- 状态检测与自动流转 ---
-                
-                // A. 如果进入 SWORD 模式，强行把 IDLE 和 PALM 的钱吸到指尖
-                if (currentMode === 'SWORD') {
-                    if (b.state === 'IDLE' || b.state === 'PALM_ORBIT') {
-                        b.state = 'FINGER_GATHER';
-                        // 随机分布在指尖周围
-                        b.gatherOffset.set((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2);
-                    }
-                    // 如果钱打光了，自动进入"背后生成"模式 (REAR_SPAWN)
-                    // 逻辑：如果处于 DONE 状态的钱太多，就拿出来复用
-                    if (b.state === 'DONE') {
-                         // 这里的复用逻辑在 fireOneBill 里处理更直接，这里主要处理动画
-                    }
+                // --- 状态流转 ---
+                // 1. 如果是摊手，吸到掌心
+                if (currentMode === 'PALM' && (p.state === 'IDLE' || p.state === 'FINGER_GATHER')) {
+                    p.state = 'PALM_ORBIT';
+                }
+                // 2. 如果是剑指蓄力，吸到指尖
+                if (currentMode === 'SWORD_GATHER' && (p.state === 'IDLE' || p.state === 'PALM_ORBIT')) {
+                    p.state = 'FINGER_GATHER';
+                }
+                // 3. 如果手松开了(IDLE)，归位
+                if (currentMode === 'IDLE' && (p.state === 'PALM_ORBIT' || p.state === 'FINGER_GATHER')) {
+                    p.state = 'IDLE';
                 }
 
-                // B. 如果进入 PALM 模式，吸到手掌
-                if (currentMode === 'PALM' && (b.state === 'IDLE' || b.state === 'FINGER_GATHER')) {
-                    b.state = 'PALM_ORBIT';
-                }
+                // --- 物理运动 ---
 
-                // C. 如果松手 (IDLE)，所有未发射的钱归位
-                if (currentMode === 'IDLE' && (b.state === 'FINGER_GATHER' || b.state === 'PALM_ORBIT' || b.state === 'REAR_SPAWN')) {
-                    b.state = 'IDLE';
-                }
-
-
-                // --- 物理行为更新 ---
-
-                // 1. 待机 (IDLE) - 绕身体转
-                if (b.state === 'IDLE') {
-                    const angle = t * 0.5 + b.idlePhase;
+                // A. 待机环绕
+                if (p.state === 'IDLE') {
+                    const angle = t * 0.5 + p.idlePhase;
                     const r = 1.2; 
-                    const target = new THREE.Vector3(Math.cos(angle)*r, b.mesh.position.y, Math.sin(angle)*r);
-                    target.y += Math.sin(t+i)*0.002;
-                    b.mesh.position.lerp(target, 0.05);
-                    b.mesh.rotation.y += dt;
+                    const target = new THREE.Vector3(Math.cos(angle)*r, p.mesh.position.y, Math.sin(angle)*r);
+                    target.y += Math.sin(t + i)*0.002;
+                    p.mesh.position.lerp(target, 0.05);
+                    p.mesh.rotation.y += dt * p.rotSpeed;
                 }
 
-                // 2. 掌心聚能 (PALM_ORBIT) - 绕手掌狂转
-                else if (b.state === 'PALM_ORBIT') {
-                    const angle = t * 5.0 + i * 0.5; // 极速旋转
-                    const r = 0.25; 
+                // B. 掌心护盾 (你要回来的特效！)
+                else if (p.state === 'PALM_ORBIT') {
+                    const angle = t * 4.0 + i * 0.5; // 快速旋转
+                    const r = 0.3; 
                     const target = new THREE.Vector3().copy(palmCenter);
                     target.x += Math.cos(angle) * r;
                     target.z += Math.sin(angle) * r;
-                    // 螺旋上升下降
-                    target.y += Math.sin(angle*3)*0.15;
-                    
-                    b.mesh.position.lerp(target, 0.15);
-                    b.mesh.rotateZ(10*dt); // 自身也转
+                    target.y += Math.sin(angle * 2) * 0.15; // 立体感
+                    p.mesh.position.lerp(target, 0.1);
+                    p.mesh.rotateY(10 * dt);
                 }
 
-                // 3. 指尖汇聚 (FINGER_GATHER) - 蓄力
-                else if (b.state === 'FINGER_GATHER') {
-                    const target = new THREE.Vector3().copy(fingerTip).add(b.gatherOffset);
-                    b.mesh.position.lerp(target, 0.2); // 快速吸附
-                    b.mesh.lookAt(target); // 车头朝向圆心
-                    b.mesh.rotateZ(10 * dt);
+                // C. 指尖蓄力
+                else if (p.state === 'FINGER_GATHER') {
+                    const target = new THREE.Vector3().copy(fingerTip).add(p.gatherOffset);
+                    p.mesh.position.lerp(target, 0.2); // 紧吸指尖
+                    p.mesh.lookAt(target);
+                    p.mesh.rotateZ(15 * dt); // 极速自旋
                 }
 
-                // 4. 背后生成飞行中 (REAR_SPAWN) - 视觉过渡
-                // 这是给"无限流"用的，钱从背后飞到指尖的过程
-                else if (b.state === 'REAR_SPAWN') {
-                    // 飞向指尖
-                    const dist = b.mesh.position.distanceTo(fingerTip);
-                    const dir = new THREE.Vector3().subVectors(fingerTip, b.mesh.position).normalize();
-                    b.mesh.position.add(dir.multiplyScalar(5.0 * dt)); // 飞得很快
+                // D. 射击飞行
+                else if (p.state === 'FLYING') {
+                    const speed = 8.0;
+                    const dir = new THREE.Vector3().subVectors(p.targetPos, p.mesh.position).normalize();
+                    const dist = p.mesh.position.distanceTo(p.targetPos);
                     
-                    if (dist < 0.1) {
-                        b.state = 'FINGER_GATHER'; // 到达指尖，进入汇聚状态等待发射
-                    }
-                }
+                    p.mesh.position.add(dir.multiplyScalar(speed * dt));
+                    p.mesh.rotateZ(20 * dt); // 飞牌特效
 
-                // 5. 射击 (FLYING)
-                else if (b.state === 'FLYING') {
-                    const speed = 10.0; // 子弹速度
-                    const dir = new THREE.Vector3().subVectors(b.targetPos, b.mesh.position).normalize();
-                    const dist = b.mesh.position.distanceTo(b.targetPos);
-                    
-                    b.mesh.position.add(dir.multiplyScalar(speed * dt));
-                    b.mesh.rotateZ(20 * dt); // 飞牌特效
-
-                    if (dist < 0.3) {
-                        b.state = 'DONE';
-                        b.mesh.visible = false;
-                        spawnPlus100(b.targetPos);
+                    // 击中消失
+                    if (dist < 0.2) {
+                        p.mesh.visible = false;
+                        p.state = 'DONE'; // 标记为已完成
+                        spawnPlus100(p.targetPos);
                     }
                 }
             });
