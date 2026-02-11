@@ -3,25 +3,96 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 御剑红包 (最终逻辑版)</title>
+    <title>Galaxy XR 御剑散财</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; }
-        #info {
+        /* --- 核心 UI 样式 --- */
+        body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: "Microsoft YaHei", sans-serif; }
+        
+        /* 启动界面容器 */
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #000000 0%, #2a0808 100%);
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 9999; color: #fff;
+        }
+
+        h1 {
+            font-size: 2.5rem; margin-bottom: 10px;
+            color: #FFD700; text-shadow: 0 0 10px #D62828;
+            letter-spacing: 5px;
+        }
+
+        .subtitle {
+            font-size: 1rem; color: #ccc; margin-bottom: 40px;
+            opacity: 0.8;
+        }
+
+        /* 巨大的启动按钮 */
+        #start-btn {
+            padding: 15px 60px;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #2a0808;
+            background: linear-gradient(to bottom, #FFD700, #F77F00);
+            border: none; border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 0 20px rgba(255, 215, 0, 0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+            animation: pulse 2s infinite;
+        }
+        
+        #start-btn:active { transform: scale(0.95); }
+        #start-btn:disabled { background: #555; color: #888; cursor: not-allowed; animation: none; box-shadow: none; }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0.7); }
+            70% { box-shadow: 0 0 0 20px rgba(255, 215, 0, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 215, 0, 0); }
+        }
+
+        /* 操作指南卡片 */
+        .guide-container {
+            margin-top: 40px;
+            display: grid; grid-template-columns: 1fr 1fr; gap: 15px;
+            width: 90%; max-width: 400px;
+        }
+
+        .guide-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 10px; border-radius: 10px;
+            text-align: center; font-size: 0.9rem;
+            border: 1px solid rgba(255, 215, 0, 0.2);
+        }
+        
+        .guide-icon { font-size: 1.5rem; margin-bottom: 5px; display: block; }
+
+        /* AR运行时的状态文字 */
+        #ar-info {
             position: absolute; top: 20px; width: 100%; text-align: center;
-            color: #fff; font-family: "Microsoft YaHei", sans-serif; 
-            pointer-events: none; text-shadow: 0 0 4px #000; font-size: 16px;
-            z-index: 999;
+            color: #fff; pointer-events: none; 
+            text-shadow: 0 0 4px #000; font-size: 16px; font-weight: bold;
+            display: none; /* 默认隐藏，进入AR后显示 */
+            z-index: 100;
         }
     </style>
 </head>
 <body>
-    <div id="info">
-        逻辑更新：<br>
-        1. 平时：悬浮于头顶5米高空<br>
-        2. 摊手：立体原子环绕<br>
-        3. 甩手：散射飞出，8米消失<br>
-        4. 握拳：头顶生成新红包
+
+    <div id="overlay">
+        <h1>御剑散财</h1>
+        <div class="subtitle">Galaxy XR 增强现实体验</div>
+        
+        <button id="start-btn" disabled>检测设备中...</button>
+
+        <div class="guide-container">
+            <div class="guide-item"><span class="guide-icon">👉</span>食指中指：御剑</div>
+            <div class="guide-item"><span class="guide-icon">🖐️</span>摊开手掌：环绕</div>
+            <div class="guide-item"><span class="guide-icon">👋</span>快速甩手：散财</div>
+            <div class="guide-item"><span class="guide-icon">✊</span>握拳：再生</div>
+        </div>
     </div>
+
+    <div id="ar-info">等待手势指令...</div>
 
     <script type="importmap">
         {
@@ -34,11 +105,10 @@
 
     <script type="module">
         import * as THREE from 'three';
-        import { ARButton } from 'three/addons/webxr/ARButton.js';
-
+        // 注意：这次我们不直接使用 ARButton 的 UI，而是手动调用 WebXR
+        
         let container, camera, scene, renderer;
         let hand;
-        
         const PACKETS = [];
         const PACKET_COUNT = 36;
         let currentMode = 'IDLE'; 
@@ -46,41 +116,16 @@
         let previousWristPos = new THREE.Vector3();
         let lastTime = 0;
         let castDirection = new THREE.Vector3(0, 0, -1);
-        let castOrigin = new THREE.Vector3(); // 记录甩手时的位置
+        let castOrigin = new THREE.Vector3();
+
+        // 绑定 UI 按钮
+        const startBtn = document.getElementById('start-btn');
+        const overlay = document.getElementById('overlay');
+        const arInfo = document.getElementById('ar-info');
 
         init();
-        animate();
 
-        function createRedPacketTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 360;
-            const ctx = canvas.getContext('2d');
-            
-            ctx.fillStyle = '#D62828';
-            ctx.fillRect(0, 0, 256, 360);
-            ctx.strokeStyle = '#F77F00';
-            ctx.lineWidth = 8;
-            ctx.beginPath();
-            ctx.moveTo(20, 100);
-            ctx.quadraticCurveTo(128, 160, 236, 100);
-            ctx.stroke();
-            ctx.fillStyle = '#FCBF49';
-            ctx.beginPath();
-            ctx.arc(128, 130, 25, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#D62828';
-            ctx.font = "bold 30px Microsoft YaHei";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText("福", 128, 132);
-            ctx.strokeStyle = '#EAE2B7';
-            ctx.lineWidth = 4;
-            ctx.strokeRect(10, 10, 236, 340);
-            
-            return new THREE.CanvasTexture(canvas);
-        }
-
+        // --- 1. 初始化 & WebXR 检测 ---
         function init() {
             container = document.createElement('div');
             document.body.appendChild(container);
@@ -94,6 +139,7 @@
             renderer.xr.enabled = true;
             container.appendChild(renderer.domElement);
 
+            // 光照
             const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
             light.position.set(0, 1, 0);
             scene.add(light);
@@ -101,6 +147,76 @@
             dirLight.position.set(0, 2, -1);
             scene.add(dirLight);
 
+            // 创建红包
+            createPackets();
+
+            // 手部追踪
+            hand = renderer.xr.getHand(0);
+            scene.add(hand);
+
+            // 窗口调整
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // --- 核心：手动检查 XR 支持并绑定按钮 ---
+            if ('xr' in navigator) {
+                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
+                    if (supported) {
+                        startBtn.innerText = "开启法阵";
+                        startBtn.disabled = false;
+                        startBtn.addEventListener('click', onStartAR);
+                    } else {
+                        startBtn.innerText = "设备不支持 AR";
+                    }
+                });
+            } else {
+                startBtn.innerText = "WebXR 不可用";
+            }
+        }
+
+        // --- 2. 启动 AR 会话 ---
+        async function onStartAR() {
+            const sessionInit = { optionalFeatures: ['hand-tracking'] };
+            try {
+                const session = await navigator.xr.requestSession('immersive-ar', sessionInit);
+                renderer.xr.setReferenceSpaceType('local');
+                renderer.xr.setSession(session);
+                
+                // UI 切换
+                overlay.style.display = 'none';
+                arInfo.style.display = 'block';
+                
+                // 监听结束
+                session.addEventListener('end', () => {
+                    overlay.style.display = 'flex';
+                    arInfo.style.display = 'none';
+                    startBtn.innerText = "重新开启";
+                });
+
+                animate();
+            } catch (e) {
+                alert("启动失败: " + e.message);
+            }
+        }
+
+        function createRedPacketTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 360;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#D62828'; ctx.fillRect(0, 0, 256, 360);
+            ctx.strokeStyle = '#F77F00'; ctx.lineWidth = 8;
+            ctx.beginPath(); ctx.moveTo(20, 100); ctx.quadraticCurveTo(128, 160, 236, 100); ctx.stroke();
+            ctx.fillStyle = '#FCBF49'; ctx.beginPath(); ctx.arc(128, 130, 25, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#D62828'; ctx.font = "bold 30px Microsoft YaHei";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("福", 128, 132);
+            ctx.strokeStyle = '#EAE2B7'; ctx.lineWidth = 4; ctx.strokeRect(10, 10, 236, 340);
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function createPackets() {
             const rpTexture = createRedPacketTexture();
             const rpGeometry = new THREE.PlaneGeometry(0.06, 0.09);
             const rpMaterial = new THREE.MeshStandardMaterial({ 
@@ -109,56 +225,26 @@
 
             for (let i = 0; i < PACKET_COUNT; i++) {
                 const mesh = new THREE.Mesh(rpGeometry, rpMaterial);
-                
-                // 初始位置直接生成在头顶高空
-                mesh.position.set(
-                    (Math.random()-0.5)*4, 
-                    4.0 + Math.random()*2, // 高度 4-6米
-                    (Math.random()-0.5)*4
-                );
-                
+                mesh.position.set((Math.random()-0.5)*4, 5.0 + Math.random()*2, (Math.random()-0.5)*4);
                 scene.add(mesh);
-                
                 PACKETS.push({
                     mesh: mesh,
                     velocity: new THREE.Vector3(0,0,0),
                     phase: Math.random() * Math.PI * 2,
                     rotAxis: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize(),
                     rotSpeed: 1.0 + Math.random() * 2.0,
-                    // 只有甩出去时才会用到 scatterDir
                     scatterDir: new THREE.Vector3() 
                 });
             }
-
-            hand = renderer.xr.getHand(0);
-            scene.add(hand);
-
-            document.body.appendChild(ARButton.createButton(renderer, {
-                requiredFeatures: ['hand-tracking']
-            }));
-
-            window.addEventListener('resize', () => {
-                camera.aspect = window.innerWidth / window.innerHeight;
-                camera.updateProjectionMatrix();
-                renderer.setSize(window.innerWidth, window.innerHeight);
-            });
         }
 
-        // --- 新增：再生逻辑 (重置所有红包到天上) ---
         function respawnPackets() {
             PACKETS.forEach(p => {
-                // 瞬间传送到头顶高空随机位置
-                p.mesh.position.set(
-                    (Math.random()-0.5) * 3, 
-                    4.5 + Math.random() * 2, // 4.5米到6.5米之间
-                    (Math.random()-0.5) * 3
-                );
-                // 速度归零
+                p.mesh.position.set((Math.random()-0.5) * 3, 4.5 + Math.random() * 2, (Math.random()-0.5) * 3);
                 p.velocity.set(0, 0, 0);
-                // 重新可见
                 p.mesh.visible = true;
             });
-            document.getElementById('info').innerText = "状态：红包已重置 (头顶生成)";
+            arInfo.innerText = "状态：红包已重置 (头顶生成)";
         }
 
         function animate() {
@@ -178,10 +264,7 @@
 
         function updateHandLogic(dt) {
             const joints = hand.joints;
-            if (!joints || !joints['wrist']) {
-                // 如果手丢了，保持当前状态 (如果是飞出状态就继续飞)
-                return;
-            }
+            if (!joints || !joints['wrist']) return;
 
             const wrist = joints['wrist'].position;
             const indexTip = joints['index-finger-tip'].position;
@@ -189,66 +272,54 @@
             const middleTip = joints['middle-finger-tip'].position;
             const thumbTip = joints['thumb-tip'].position;
 
-            // --- 甩手检测 ---
             if (dt > 0) {
                 const moveDist = wrist.distanceTo(previousWristPos);
                 const currentSpeed = moveDist / dt;
                 
-                // 速度大于 2.5 触发甩出
                 if (currentSpeed > 2.5 && currentMode !== 'CAST_OUT') {
                     currentMode = 'CAST_OUT';
-                    castOrigin.copy(wrist); // 记录发射点
+                    castOrigin.copy(wrist);
                     castDirection.copy(wrist).sub(previousWristPos).normalize();
                     if (castDirection.lengthSq() === 0) castDirection.set(0, 0, -1);
                     
-                    // 为每个红包计算一个散射方向 (Shotgun Effect)
                     PACKETS.forEach(p => {
-                        // 基础方向是甩手方向
                         p.scatterDir.copy(castDirection);
-                        // 加上随机偏移，形成锥形散射
                         p.scatterDir.x += (Math.random() - 0.5) * 0.8; 
                         p.scatterDir.y += (Math.random() - 0.5) * 0.8;
                         p.scatterDir.z += (Math.random() - 0.5) * 0.8;
                         p.scatterDir.normalize();
                     });
-
-                    document.getElementById('info').innerText = "状态：散财！(飞出消失)";
+                    arInfo.innerText = "状态：散财！(飞出消失)";
                 }
             }
             previousWristPos.copy(wrist);
 
-            // 如果正在飞出，只有握拳能重置
             if (currentMode === 'CAST_OUT') {
                  const isFist = (indexTip.distanceTo(wrist) < 0.1 && pinkyTip.distanceTo(wrist) < 0.1);
                  if (isFist) {
                      currentMode = 'IDLE';
-                     respawnPackets(); // 触发再生逻辑
+                     respawnPackets();
                  }
                  return; 
             }
 
-            // --- 手势识别 ---
             const distIndexMiddle = indexTip.distanceTo(middleTip);
             const distIndexWrist = indexTip.distanceTo(wrist);
             const distPinkyWrist = pinkyTip.distanceTo(wrist);
             const distThumbIndex = thumbTip.distanceTo(indexTip);
 
-            // 剑指
             if ((distIndexMiddle < 0.035) && (distIndexWrist > 0.12) && (distPinkyWrist < 0.08)) {
                 currentMode = 'SWORD';
-                document.getElementById('info').innerText = "状态：御剑 (指尖悬浮)";
+                arInfo.innerText = "状态：御剑 (指尖悬浮)";
             } 
-            // 摊手
             else if ((distIndexWrist > 0.10) && (distPinkyWrist > 0.10) && (distThumbIndex > 0.08)) {
                 currentMode = 'PALM';
-                document.getElementById('info').innerText = "状态：环绕 (立体护盾)";
+                arInfo.innerText = "状态：环绕 (立体护盾)";
             } 
-            // 握拳
             else if ((distIndexWrist < 0.10) && (distPinkyWrist < 0.08)) {
-                // 如果当前不是 IDLE，说明刚做完动作，握拳归位
                 if (currentMode !== 'IDLE') {
                     currentMode = 'IDLE';
-                    respawnPackets(); // 握拳也触发重置逻辑，把没发出去的收回天上
+                    respawnPackets();
                 }
             }
         }
@@ -256,17 +327,13 @@
         function updatePhysics(dt, time) {
             const t = time * 0.001;
             const joints = hand.joints;
-            
             let targetCenter = new THREE.Vector3();
             let cohesionStrength = 0; 
 
-            // === 设定目标中心 ===
             if (currentMode === 'SWORD' && joints['index-finger-tip']) {
                 const tip = joints['index-finger-tip'].position;
                 const wrist = joints['wrist'].position;
                 const fingerDir = new THREE.Vector3().subVectors(tip, wrist).normalize();
-                
-                // 距离指尖 15cm
                 targetCenter.copy(tip).add(fingerDir.multiplyScalar(0.15));
                 cohesionStrength = 15.0; 
             } 
@@ -276,27 +343,64 @@
                 cohesionStrength = 10.0; 
             }
             else { 
-                // IDLE: 目标在头顶高空 (0, 5, 0)
-                // 这样平时你看不见它们，或者只能抬头看见
                 targetCenter.set(0, 5.0, -1.0);
                 cohesionStrength = 2.0;
             }
 
             PACKETS.forEach((p, i) => {
-                // 如果已经不可见（飞出去了），就跳过物理计算，省性能
                 if (!p.mesh.visible) return;
-
                 const desiredVelocity = new THREE.Vector3();
 
-                // --- 1. 飞出模式 (CAST_OUT) ---
                 if (currentMode === 'CAST_OUT') {
-                    // 使用之前计算好的散射方向
-                    // 速度调慢：从 3.5 降到 1.5，慢慢飞
                     desiredVelocity.copy(p.scatterDir).multiplyScalar(1.5);
-                    
-                    // 物理移动
                     p.velocity.lerp(desiredVelocity, 0.2);
                     p.mesh.position.add(new THREE.Vector3().copy(p.velocity).multiplyScalar(dt));
+                    p.mesh.rotateZ(10 * dt);
+                    p.mesh.rotateX(5 * dt);
+                    if (p.mesh.position.distanceTo(castOrigin) > 8.0) p.mesh.visible = false; 
+                    return; 
+                }
 
-                    // 旋转：高速自旋
-                    p.mesh.rotateZ(1
+                if (currentMode === 'SWORD') {
+                    const angle = t * 5.0 + p.phase + i * 0.1;
+                    const radius = 0.08 + Math.sin(t * 3 + i) * 0.04;
+                    const orbitPos = new THREE.Vector3().copy(targetCenter);
+                    orbitPos.x += Math.cos(angle) * radius;
+                    orbitPos.y += Math.sin(angle) * radius;
+                    const force = new THREE.Vector3().subVectors(orbitPos, p.mesh.position);
+                    desiredVelocity.copy(force).multiplyScalar(cohesionStrength);
+                    
+                    if (p.velocity.lengthSq() > 0.001) {
+                        const targetLook = new THREE.Vector3().copy(p.mesh.position).add(p.velocity);
+                        p.mesh.lookAt(targetLook);
+                        p.mesh.rotateX(-Math.PI / 2);
+                    }
+                } 
+                else if (currentMode === 'PALM') {
+                    const angle = t * 2.0 + p.phase;
+                    const orbitPos = new THREE.Vector3().copy(targetCenter);
+                    orbitPos.x += Math.cos(angle) * 0.3; 
+                    orbitPos.z += Math.sin(angle) * 0.3;
+                    orbitPos.y += Math.sin(angle * 1.5 + i) * 0.3; 
+                    
+                    const force = new THREE.Vector3().subVectors(orbitPos, p.mesh.position);
+                    desiredVelocity.copy(force).multiplyScalar(cohesionStrength);
+                    p.mesh.rotateOnAxis(p.rotAxis, p.rotSpeed * dt);
+                }
+                else {
+                    const floatX = Math.sin(t * 0.2 + p.phase) * 2.0; 
+                    const floatY = 5.0 + Math.cos(t * 0.3 + i) * 0.5; 
+                    const floatZ = -1.0 + Math.sin(t * 0.4 + i) * 1.0;
+                    const idleTarget = new THREE.Vector3(floatX, floatY, floatZ);
+                    const force = new THREE.Vector3().subVectors(idleTarget, p.mesh.position);
+                    desiredVelocity.copy(force).multiplyScalar(cohesionStrength);
+                    p.mesh.rotateOnAxis(p.rotAxis, p.rotSpeed * dt * 0.5);
+                }
+
+                p.velocity.lerp(desiredVelocity, 0.1); 
+                p.mesh.position.add(new THREE.Vector3().copy(p.velocity).multiplyScalar(dt));
+            });
+        }
+    </script>
+</body>
+</html>
