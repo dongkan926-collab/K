@@ -78,8 +78,13 @@
         
         const PACKETS = [];
         const PACKET_COUNT = 50; 
-        const TEXTS = []; 
         
+        // --- 核心优化：特效对象池 ---
+        const EFFECT_POOL = []; 
+        const EFFECT_POOL_SIZE = 30; // 最大同时显示30个+100，足够了
+        let effectPoolIndex = 0;
+        
+        // 状态
         let currentMode = 'IDLE'; 
         let reticle; 
         let hitTestSource = null;
@@ -88,9 +93,6 @@
         let lastTime = 0;
         let fireRateTimer = 0;
         
-        // 【关键修复】全局缓存纹理，防止内存溢出
-        let cachedPlus100Texture = null; 
-
         const btn = document.getElementById('start-btn');
         const overlay = document.getElementById('overlay');
         const statusText = document.getElementById('ar-status');
@@ -111,7 +113,7 @@
             return new THREE.CanvasTexture(canvas);
         }
 
-        // 创建一次，重复使用
+        // 创建唯一的文字纹理
         function createTextTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 300; canvas.height = 128;
@@ -148,9 +150,19 @@
             reticle.visible = false;
             scene.add(reticle);
 
-            // 预加载纹理
-            cachedPlus100Texture = createTextTexture();
+            // --- 1. 初始化特效对象池 (解决死机问题) ---
+            const textTex = createTextTexture();
+            const textMat = new THREE.SpriteMaterial({ map: textTex, transparent: true, opacity: 0 }); // 共享材质
+            
+            for (let i = 0; i < EFFECT_POOL_SIZE; i++) {
+                const sprite = new THREE.Sprite(textMat.clone()); // 克隆材质以独立控制透明度
+                sprite.visible = false;
+                sprite.scale.set(0.6, 0.25, 1);
+                scene.add(sprite);
+                EFFECT_POOL.push({ sprite: sprite, life: 0 });
+            }
 
+            // --- 2. 初始化红包池 ---
             const rpTex = createRedPacketTexture();
             const rpGeo = new THREE.PlaneGeometry(0.08, 0.12);
             const rpMat = new THREE.MeshStandardMaterial({ map: rpTex, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.1 });
@@ -160,17 +172,21 @@
                 resetPacketToIdle(mesh, i);
                 scene.add(mesh);
                 
-                // 生成随机的旋转轴，用于摊手时的混沌效果
-                const randomAxis = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+                // 生成更随机的旋转轴，用于混沌护盾
+                const randomAxis = new THREE.Vector3(
+                    (Math.random()-0.5)*2, 
+                    (Math.random()-0.5)*2, 
+                    (Math.random()-0.5)*2
+                ).normalize();
 
                 PACKETS.push({
                     mesh: mesh,
                     state: 'IDLE', 
                     targetPos: new THREE.Vector3(),
                     idlePhase: Math.random() * Math.PI * 2,
-                    rotSpeed: 0.5 + Math.random() * 2.0,
+                    orbitAxis: randomAxis, 
+                    orbitSpeed: 2.0 + Math.random() * 3.0, // 随机转速
                     gatherOffset: new THREE.Vector3((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3),
-                    orbitAxis: randomAxis, // 混沌轴
                     flyStartPos: new THREE.Vector3(),
                     flyControlPos: new THREE.Vector3(),
                     flyStartTime: 0
@@ -299,7 +315,7 @@
                     regenerateAmmoIfNeed();
                 } else { // 朝前
                     currentMode = 'SWORD_SHOOT';
-                    statusText.innerText = "状态：发射！";
+                    statusText.innerText = "状态：弧线轰炸！";
                     
                     fireRateTimer += dt;
                     if (fireRateTimer > 0.08) { 
@@ -308,7 +324,7 @@
                     }
                 }
             }
-            // 3. 摊手: 混沌护盾 (Chaos Shield)
+            // 3. 摊手: 混沌护盾 (优化版)
             else if (dIndexWrist > 0.10 && dPinkyWrist > 0.10 && dThumbIndex > 0.08) {
                 currentMode = 'PALM';
                 statusText.innerText = "状态：混沌护盾";
@@ -333,7 +349,7 @@
             if (reticle.visible) {
                 target.copy(reticle.position);
             } else {
-                target.copy(startPos).add(dir.multiplyScalar(4.0));
+                target.copy(startPos).add(dir.multiplyScalar(5.0));
             }
 
             let pkt = PACKETS.find(p => p.state === 'FINGER_READY');
@@ -347,25 +363,27 @@
                 pkt.flyTargetPos.copy(target);
                 pkt.flyStartTime = performance.now() * 0.001; 
                 
-                // 贝塞尔控制点
+                // 贝塞尔高抛线
                 const midPoint = new THREE.Vector3().addVectors(pkt.flyStartPos, target).multiplyScalar(0.5);
                 const distance = pkt.flyStartPos.distanceTo(target);
-                midPoint.y += distance * 0.6; // 抛物线更高
-                midPoint.x += (Math.random() - 0.5) * 1.0; // 随机弧度更大
+                midPoint.y += distance * 0.5; // 抛物线高度
+                midPoint.x += (Math.random() - 0.5) * 0.8; 
                 pkt.flyControlPos.copy(midPoint);
             }
         }
 
-        // 【优化】复用纹理，解决卡顿死机
+        // --- 核心优化：复用池中的对象 ---
         function spawnPlus100(pos) {
-            if (!cachedPlus100Texture) return;
-            const mat = new THREE.SpriteMaterial({ map: cachedPlus100Texture, transparent: true });
-            const sprite = new THREE.Sprite(mat);
-            sprite.position.copy(pos);
-            sprite.position.y += 0.2;
-            sprite.scale.set(0.6, 0.25, 1);
-            scene.add(sprite);
-            TEXTS.push({ sprite: sprite, life: 1.0 });
+            // 找到一个空闲的特效 (life <= 0)
+            // 简单的轮询覆盖策略
+            const effect = EFFECT_POOL[effectPoolIndex];
+            effectPoolIndex = (effectPoolIndex + 1) % EFFECT_POOL_SIZE;
+
+            effect.sprite.visible = true;
+            effect.sprite.position.copy(pos);
+            effect.sprite.position.y += 0.2;
+            effect.life = 1.0;
+            effect.sprite.material.opacity = 1.0;
         }
 
         function updatePackets(dt, t_ms) {
@@ -400,45 +418,38 @@
                     p.mesh.rotation.y += dt;
                 }
 
-                // B. 混沌护盾 (无序乱飞)
+                // B. 混沌护盾 (Chaotic Orbit) - 彻底无序
                 else if (p.state === 'PALM_ORBIT') {
-                    // 使用原子轨道模型：每个红包有一个随机的 orbitAxis
-                    // 围绕手掌中心旋转
-                    const speed = 4.0; 
-                    const angle = t * speed + p.idlePhase;
-                    const r = 0.35 + Math.sin(angle * 0.5) * 0.05; // 半径呼吸
-
-                    // 计算相对位置：在随机平面上旋转
-                    // 构建两个垂直于 orbitAxis 的向量 v1, v2
-                    // 这里简化：直接用三角函数生成 spherical coordinates 的变体
+                    // 每个红包有自己独特的旋转轴和速度
+                    const angle = t * p.orbitSpeed + p.idlePhase;
+                    const r = 0.3; // 护盾半径
                     
-                    const orbitPos = new THREE.Vector3();
-                    // 基础旋转
-                    orbitPos.x = Math.cos(angle) * r;
-                    orbitPos.y = Math.sin(angle) * Math.sin(p.idlePhase) * r; // 倾斜
-                    orbitPos.z = Math.sin(angle) * Math.cos(p.idlePhase) * r;
-                    
-                    // 将这个旋转应用到 orbitAxis 方向 (简化模拟)
-                    orbitPos.applyAxisAngle(p.orbitAxis, angle * 0.1);
-
+                    // 计算轨道位置：在 orbitAxis 的法平面上旋转
+                    const orbitPos = new THREE.Vector3(Math.cos(angle)*r, 0, Math.sin(angle)*r);
+                    // 构造一个四元数让它转到 orbitAxis 平面 (简化版：直接让位置加上随机扰动)
+                    orbitPos.applyAxisAngle(p.orbitAxis, angle * 0.2); // 稍微扭曲轨道
+                    // 加上手掌位置
                     const target = new THREE.Vector3().copy(palmCenter).add(orbitPos);
                     
+                    // 增加垂直方向的随机震荡
+                    target.y += Math.sin(angle * 3) * 0.1;
+
                     p.mesh.position.lerp(target, 0.1);
-                    // 随机自转
+                    // 自转
                     p.mesh.rotateOnAxis(p.orbitAxis, 5 * dt);
                 }
 
-                // C. 悬顶蓄力
+                // C. 悬顶蓄力 (不挡视线)
                 else if (p.state === 'FINGER_READY') {
-                    // 目标点：指尖向前0.2m，向上0.3m (不挡视线)
+                    // 目标点：手指前方 0.2m，上方 0.3m (悬顶)
                     const targetCenter = new THREE.Vector3().copy(fingerTip)
                         .add(fingerDir.clone().multiplyScalar(0.2)) 
                         .add(new THREE.Vector3(0, 0.3, 0));        
 
                     // 漂浮感
-                    const noiseX = Math.sin(t * 2 + i) * 0.03;
-                    const noiseY = Math.cos(t * 2.5 + i) * 0.03;
-                    const noiseZ = Math.sin(t * 3 + i) * 0.03;
+                    const noiseX = Math.sin(t * 2 + i) * 0.05;
+                    const noiseY = Math.cos(t * 2.5 + i) * 0.05;
+                    const noiseZ = Math.sin(t * 3 + i) * 0.05;
                     const target = targetCenter.add(p.gatherOffset).add(new THREE.Vector3(noiseX, noiseY, noiseZ));
                     
                     p.mesh.position.lerp(target, 0.1); 
@@ -470,28 +481,30 @@
                         pos.addScaledVector(p1, 2 * u * progress);
                         pos.addScaledVector(p2, tt);
                         
-                        const tangent = new THREE.Vector3();
-                        const t1 = new THREE.Vector3().subVectors(p1, p0).multiplyScalar(2 * u);
-                        const t2 = new THREE.Vector3().subVectors(p2, p1).multiplyScalar(2 * progress);
-                        tangent.addVectors(t1, t2).normalize();
-
+                        // 简单的切线计算用于朝向
+                        const tangent = new THREE.Vector3().subVectors(p2, p0).normalize(); // 简化
+                        
                         p.mesh.position.copy(pos);
                         p.mesh.lookAt(pos.clone().add(tangent));
                         p.mesh.rotateX(-Math.PI/2);
+                        p.mesh.rotateZ(10 * dt); // 飞行时自转
                     }
                 }
             });
         }
 
+        // --- 特效更新 (对象池) ---
         function updateEffects(dt) {
-            for (let i = TEXTS.length - 1; i >= 0; i--) {
-                const t = TEXTS[i];
-                t.life -= dt;
-                t.sprite.position.y += dt * 0.5;
-                t.sprite.material.opacity = t.life;
-                if (t.life <= 0) {
-                    scene.remove(t.sprite);
-                    TEXTS.splice(i, 1);
+            for (let i = 0; i < EFFECT_POOL_SIZE; i++) {
+                const effect = EFFECT_POOL[i];
+                if (effect.sprite.visible) {
+                    effect.life -= dt;
+                    effect.sprite.position.y += dt * 0.5; // 向上飘
+                    effect.sprite.material.opacity = effect.life; // 淡出
+                    
+                    if (effect.life <= 0) {
+                        effect.sprite.visible = false; // 回收
+                    }
                 }
             }
         }
