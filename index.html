@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 御剑红包流 (优化版)</title>
+    <title>Galaxy XR 最终御剑版</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; }
         #info {
@@ -16,11 +16,10 @@
 </head>
 <body>
     <div id="info">
-        参数已优化<br>
-        1. 伸出食指中指：御剑 (悬浮于指尖前方15cm)<br>
-        2. 摊开手掌：回旋 (极速召回)<br>
-        3. 快速甩手：万剑齐发 (速度适中)<br>
-        4. 握拳：归位
+        最终优化版<br>
+        1. 御剑：整齐划一，极速响应<br>
+        2. 悬浮/归位：随机翻滚，更有灵气<br>
+        3. 甩手：高速自旋飞出
     </div>
 
     <script type="importmap">
@@ -55,6 +54,8 @@
             canvas.width = 256;
             canvas.height = 360;
             const ctx = canvas.getContext('2d');
+            
+            // 样式保持不变
             ctx.fillStyle = '#D62828';
             ctx.fillRect(0, 0, 256, 360);
             ctx.strokeStyle = '#F77F00';
@@ -75,6 +76,7 @@
             ctx.strokeStyle = '#EAE2B7';
             ctx.lineWidth = 4;
             ctx.strokeRect(10, 10, 236, 340);
+            
             return new THREE.CanvasTexture(canvas);
         }
 
@@ -108,10 +110,14 @@
                 const mesh = new THREE.Mesh(rpGeometry, rpMaterial);
                 mesh.position.set((Math.random()-0.5)*2, 1.0+(Math.random()-0.5)*1, -1.5+(Math.random()-0.5)*1);
                 scene.add(mesh);
+                
                 PACKETS.push({
                     mesh: mesh,
                     velocity: new THREE.Vector3(0,0,0),
-                    phase: Math.random() * Math.PI * 2
+                    phase: Math.random() * Math.PI * 2,
+                    // 新增：每个红包独有的旋转速度轴，用于非御剑状态
+                    rotAxis: new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize(),
+                    rotSpeed: 2.0 + Math.random() * 3.0
                 });
             }
 
@@ -161,7 +167,6 @@
             if (dt > 0) {
                 const moveDist = wrist.distanceTo(previousWristPos);
                 const currentSpeed = moveDist / dt;
-                // 维持原来的检测阈值
                 if (currentSpeed > 2.5 && currentMode !== 'CAST_OUT') {
                     currentMode = 'CAST_OUT';
                     castDirection.copy(wrist).sub(previousWristPos).normalize();
@@ -172,7 +177,6 @@
             previousWristPos.copy(wrist);
 
             if (currentMode === 'CAST_OUT') {
-                 // 只有握拳能打断
                  const isFist = (indexTip.distanceTo(wrist) < 0.1 && pinkyTip.distanceTo(wrist) < 0.1);
                  if (isFist) {
                      currentMode = 'IDLE';
@@ -190,12 +194,12 @@
             // 剑指
             if ((distIndexMiddle < 0.035) && (distIndexWrist > 0.12) && (distPinkyWrist < 0.08)) {
                 currentMode = 'SWORD';
-                document.getElementById('info').innerText = "状态：御剑 (前方悬浮)";
+                document.getElementById('info').innerText = "状态：御剑 (锁定视角)";
             } 
             // 摊手
             else if ((distIndexWrist > 0.10) && (distPinkyWrist > 0.10) && (distThumbIndex > 0.08)) {
                 currentMode = 'PALM';
-                document.getElementById('info').innerText = "状态：掌上极速回旋";
+                document.getElementById('info').innerText = "状态：掌上回旋 (随机翻滚)";
             } 
             // 握拳
             else if ((distIndexWrist < 0.10) && (distPinkyWrist < 0.08)) {
@@ -212,54 +216,45 @@
             let cohesionStrength = 0; 
             let orbitSpeed = 0;       
 
-            // === 状态参数调整区 ===
-
             if (currentMode === 'SWORD' && joints['index-finger-tip']) {
                 const tip = joints['index-finger-tip'].position;
                 const wrist = joints['wrist'].position;
-
-                // [优化点3] 计算指尖方向向量
-                // 方向 = 指尖 - 手腕 (归一化)
                 const fingerDir = new THREE.Vector3().subVectors(tip, wrist).normalize();
                 
-                // 目标点 = 指尖 + 方向 * 0.15米 (15cm)
                 targetCenter.copy(tip).add(fingerDir.multiplyScalar(0.15));
-
-                // [优化点2] 提高凝聚力，让回来更快
-                cohesionStrength = 15.0; // 原来是 5.0，现在加倍
-                orbitSpeed = 8.0;       // 旋转速度也加快，更酷炫
+                
+                // 保持高凝聚力
+                cohesionStrength = 20.0; 
+                orbitSpeed = 8.0;       
             } 
             else if (currentMode === 'PALM' && joints['wrist']) {
                 const wrist = joints['wrist'].position;
-                targetCenter.copy(wrist).add(new THREE.Vector3(0, 0.2, 0)); // 手心上方20cm
+                targetCenter.copy(wrist).add(new THREE.Vector3(0, 0.2, 0));
                 
-                // [优化点2] 提高凝聚力
-                cohesionStrength = 8.0; 
+                // 归位也需要很快，数值拉大
+                cohesionStrength = 18.0; 
                 orbitSpeed = 2.0;       
             }
             else { // IDLE
                 targetCenter.set(0, 1.5, -1.0);
-                cohesionStrength = 0.5;
+                // IDLE 状态如果从远处回来，也需要较大的力，但到了之后要柔和
+                // 这里我们给一个较大的基础值，确保“归位”不慢
+                cohesionStrength = 5.0;
             }
 
             PACKETS.forEach((p, i) => {
                 const desiredVelocity = new THREE.Vector3();
 
+                // --- 1. 位置计算 ---
                 if (currentMode === 'CAST_OUT') {
-                    // [优化点1] 降低飞出速度
-                    // 原来是 8.0，现在改为 3.5，视觉上更舒适
                     desiredVelocity.copy(castDirection).multiplyScalar(3.5); 
-                    // 加上较大的随机扩散，让弹道更华丽
                     desiredVelocity.x += (Math.random()-0.5) * 3;
                     desiredVelocity.y += (Math.random()-0.5) * 3;
                 } 
                 else if (currentMode === 'SWORD') {
-                    // 螺旋计算
                     const angle = t * orbitSpeed + p.phase + i * 0.1;
-                    const radius = 0.08 + Math.sin(t * 3 + i) * 0.04; // 收紧半径，更像一把剑
-                    
+                    const radius = 0.08 + Math.sin(t * 3 + i) * 0.04;
                     const orbitPos = new THREE.Vector3().copy(targetCenter);
-                    // 根据手腕朝向构建旋转平面比较复杂，这里简化为绕 Y 轴旋转，但在AR中效果足够
                     orbitPos.x += Math.cos(angle) * radius;
                     orbitPos.y += Math.sin(angle) * radius;
                     
@@ -269,33 +264,53 @@
                 else if (currentMode === 'PALM') {
                     const angle = t * orbitSpeed + p.phase;
                     const orbitPos = new THREE.Vector3().copy(targetCenter);
-                    orbitPos.x += Math.cos(angle) * 0.3; // 摊手时半径大一点
+                    orbitPos.x += Math.cos(angle) * 0.3; 
                     orbitPos.z += Math.sin(angle) * 0.3;
                     
                     const force = new THREE.Vector3().subVectors(orbitPos, p.mesh.position);
                     desiredVelocity.copy(force).multiplyScalar(cohesionStrength);
                 }
-                else { // IDLE 漂浮
+                else { // IDLE
                     const floatX = Math.sin(t * 0.5 + p.phase) * 0.8;
                     const floatY = Math.cos(t * 0.3 + p.phase) * 0.3 + 1.2;
                     const floatZ = -1.0 + Math.sin(t * 0.2 + i) * 0.5;
                     const idleTarget = new THREE.Vector3(floatX, floatY, floatZ);
                     const force = new THREE.Vector3().subVectors(idleTarget, p.mesh.position);
-                    desiredVelocity.copy(force).multiplyScalar(0.2);
+                    desiredVelocity.copy(force).multiplyScalar(cohesionStrength); // 使用加强后的拉力
                 }
 
-                // [优化点2] 提高响应速度 (Lerp Factor)
-                // 归位或御剑时，因子从 0.1 提升到 0.25，这意味着每一帧修正 25% 的速度差，响应极快
-                const smoothFactor = (currentMode === 'SWORD' || currentMode === 'PALM') ? 0.25 : 0.05;
-                
+                // --- 2. 速度应用 (响应速度提升) ---
+                // smoothFactor 提升到 0.4，意味着响应极其迅速，解决“回来的太慢”
+                let smoothFactor = 0.4; 
+                if (currentMode === 'IDLE') smoothFactor = 0.1; // IDLE 时稍微柔和一点，避免抖动
+
                 p.velocity.lerp(desiredVelocity, smoothFactor);
                 p.mesh.position.add(new THREE.Vector3().copy(p.velocity).multiplyScalar(dt));
 
-                // 姿态朝向
-                if (p.velocity.lengthSq() > 0.001) {
-                    const targetLook = new THREE.Vector3().copy(p.mesh.position).add(p.velocity);
-                    p.mesh.lookAt(targetLook);
-                    p.mesh.rotateX(-Math.PI / 2); 
+                // --- 3. 旋转姿态 (核心修改) ---
+                if (currentMode === 'SWORD') {
+                    // 御剑：必须整齐，全部指向前方 (朝向 velocity 或 手指方向)
+                    // 这里用 lookAt velocity 产生流线感
+                    if (p.velocity.lengthSq() > 0.001) {
+                        const targetLook = new THREE.Vector3().copy(p.mesh.position).add(p.velocity);
+                        p.mesh.lookAt(targetLook);
+                        p.mesh.rotateX(-Math.PI / 2); 
+                    }
+                } 
+                else if (currentMode === 'CAST_OUT') {
+                     // 飞出：高速自旋 (像飞牌)
+                     if (p.velocity.lengthSq() > 0.001) {
+                        const targetLook = new THREE.Vector3().copy(p.mesh.position).add(p.velocity);
+                        p.mesh.lookAt(targetLook);
+                        p.mesh.rotateX(-Math.PI / 2); 
+                        // 额外增加绕自身Z轴旋转
+                        p.mesh.rotateZ(t * 10); 
+                    }
+                }
+                else {
+                    // IDLE 和 PALM：随机翻滚，不要整齐
+                    // 绕着各自随机定义的轴旋转
+                    p.mesh.rotateOnAxis(p.rotAxis, p.rotSpeed * dt);
                 }
             });
         }
