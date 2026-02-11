@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 御剑·悬顶轰炸版</title>
+    <title>Galaxy XR 御剑·最终稳定版</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: "Microsoft YaHei", sans-serif; }
         
@@ -53,8 +53,8 @@
         
         <div class="guide-grid">
             <div class="guide-card"><span class="icon">☝️</span><b>指天</b><br>悬顶蓄力 (补弹)</div>
-            <div class="guide-card"><span class="icon">👉</span><b>指前</b><br>俯冲轰炸 (+100¥)</div>
-            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>立体法阵</div>
+            <div class="guide-card"><span class="icon">👉</span><b>指前</b><br>弧线轰炸 (+100¥)</div>
+            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>混沌护盾</div>
             <div class="guide-card"><span class="icon">✊</span><b>握拳</b><br>全屏重置</div>
         </div>
     </div>
@@ -82,13 +82,15 @@
         
         let currentMode = 'IDLE'; 
         let reticle; 
-        let laserBeam; 
         let hitTestSource = null;
         let hitTestSourceRequested = false;
         
         let lastTime = 0;
         let fireRateTimer = 0;
         
+        // 【关键修复】全局缓存纹理，防止内存溢出
+        let cachedPlus100Texture = null; 
+
         const btn = document.getElementById('start-btn');
         const overlay = document.getElementById('overlay');
         const statusText = document.getElementById('ar-status');
@@ -109,6 +111,7 @@
             return new THREE.CanvasTexture(canvas);
         }
 
+        // 创建一次，重复使用
         function createTextTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 300; canvas.height = 128;
@@ -137,6 +140,7 @@
             const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
             scene.add(hemiLight);
             
+            // 金色准星
             const reticleGeo = new THREE.RingGeometry(0.03, 0.04, 32);
             const reticleMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 }); 
             reticle = new THREE.Mesh(reticleGeo, reticleMat);
@@ -144,11 +148,8 @@
             reticle.visible = false;
             scene.add(reticle);
 
-            const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
-            const laserMat = new THREE.LineBasicMaterial({ color: 0xFF0000, transparent: true, opacity: 0.5 });
-            laserBeam = new THREE.Line(laserGeo, laserMat);
-            laserBeam.visible = false;
-            scene.add(laserBeam);
+            // 预加载纹理
+            cachedPlus100Texture = createTextTexture();
 
             const rpTex = createRedPacketTexture();
             const rpGeo = new THREE.PlaneGeometry(0.08, 0.12);
@@ -159,13 +160,17 @@
                 resetPacketToIdle(mesh, i);
                 scene.add(mesh);
                 
+                // 生成随机的旋转轴，用于摊手时的混沌效果
+                const randomAxis = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
+
                 PACKETS.push({
                     mesh: mesh,
                     state: 'IDLE', 
                     targetPos: new THREE.Vector3(),
                     idlePhase: Math.random() * Math.PI * 2,
-                    isInnerCircle: i % 2 === 0, 
+                    rotSpeed: 0.5 + Math.random() * 2.0,
                     gatherOffset: new THREE.Vector3((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3),
+                    orbitAxis: randomAxis, // 混沌轴
                     flyStartPos: new THREE.Vector3(),
                     flyControlPos: new THREE.Vector3(),
                     flyStartTime: 0
@@ -260,10 +265,7 @@
 
         function handleGestures(dt) {
             const joints = hand.joints;
-            if (!joints || !joints['wrist']) {
-                laserBeam.visible = false;
-                return;
-            }
+            if (!joints || !joints['wrist']) return;
 
             const wrist = joints['wrist'].position;
             const indexTip = joints['index-finger-tip'].position;
@@ -276,6 +278,7 @@
             const dPinkyWrist = pinkyTip.distanceTo(wrist);
             const dThumbIndex = thumbTip.distanceTo(indexTip);
 
+            // 1. 握拳: 重置
             if (dIndexWrist < 0.10 && dPinkyWrist < 0.08) {
                 if (currentMode !== 'IDLE') {
                     currentMode = 'IDLE';
@@ -285,22 +288,18 @@
                         resetPacketToIdle(p.mesh, i);
                     });
                 }
-                laserBeam.visible = false;
             }
+            // 2. 剑指
             else if (dIndexMiddle < 0.04 && dIndexWrist > 0.12 && dPinkyWrist < 0.08) {
                 const pointDir = new THREE.Vector3().subVectors(indexTip, wrist).normalize();
-                laserBeam.position.copy(indexTip);
-                laserBeam.lookAt(new THREE.Vector3().copy(indexTip).add(pointDir));
                 
-                if (pointDir.y > 0.5) { // 手指指天
+                if (pointDir.y > 0.6) { // 朝上
                     currentMode = 'SWORD_GATHER';
-                    statusText.innerText = "状态：悬顶蓄力";
-                    laserBeam.visible = false;
+                    statusText.innerText = "状态：悬顶蓄力 (补弹中)";
                     regenerateAmmoIfNeed();
-                } else {
+                } else { // 朝前
                     currentMode = 'SWORD_SHOOT';
-                    statusText.innerText = "状态：俯冲发射！";
-                    laserBeam.visible = true;
+                    statusText.innerText = "状态：发射！";
                     
                     fireRateTimer += dt;
                     if (fireRateTimer > 0.08) { 
@@ -309,13 +308,11 @@
                     }
                 }
             }
+            // 3. 摊手: 混沌护盾 (Chaos Shield)
             else if (dIndexWrist > 0.10 && dPinkyWrist > 0.10 && dThumbIndex > 0.08) {
                 currentMode = 'PALM';
-                statusText.innerText = "状态：立体法阵";
-                laserBeam.visible = false;
+                statusText.innerText = "状态：混沌护盾";
                 regenerateAmmoIfNeed();
-            } else {
-                laserBeam.visible = false;
             }
         }
 
@@ -336,7 +333,7 @@
             if (reticle.visible) {
                 target.copy(reticle.position);
             } else {
-                target.copy(startPos).add(dir.multiplyScalar(5.0));
+                target.copy(startPos).add(dir.multiplyScalar(4.0));
             }
 
             let pkt = PACKETS.find(p => p.state === 'FINGER_READY');
@@ -346,23 +343,23 @@
             if (pkt) {
                 pkt.state = 'FLYING';
                 pkt.mesh.visible = true;
-                // 从红包当前位置起飞，而不是强制归零到手指，这样更自然
                 pkt.flyStartPos.copy(pkt.mesh.position); 
                 pkt.flyTargetPos.copy(target);
                 pkt.flyStartTime = performance.now() * 0.001; 
                 
-                // 贝塞尔曲线控制点：起点和终点的中点，向上抬高
+                // 贝塞尔控制点
                 const midPoint = new THREE.Vector3().addVectors(pkt.flyStartPos, target).multiplyScalar(0.5);
                 const distance = pkt.flyStartPos.distanceTo(target);
-                midPoint.y += distance * 0.5; // 抛物线高度
-                midPoint.x += (Math.random() - 0.5) * 0.5; // 随机弧度
+                midPoint.y += distance * 0.6; // 抛物线更高
+                midPoint.x += (Math.random() - 0.5) * 1.0; // 随机弧度更大
                 pkt.flyControlPos.copy(midPoint);
             }
         }
 
+        // 【优化】复用纹理，解决卡顿死机
         function spawnPlus100(pos) {
-            const tex = createTextTexture();
-            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true });
+            if (!cachedPlus100Texture) return;
+            const mat = new THREE.SpriteMaterial({ map: cachedPlus100Texture, transparent: true });
             const sprite = new THREE.Sprite(mat);
             sprite.position.copy(pos);
             sprite.position.y += 0.2;
@@ -393,7 +390,7 @@
                 if ((currentMode === 'SWORD_GATHER' || currentMode === 'SWORD_SHOOT') && (p.state === 'IDLE' || p.state === 'PALM_ORBIT')) p.state = 'FINGER_READY';
                 if (currentMode === 'IDLE' && (p.state === 'PALM_ORBIT' || p.state === 'FINGER_READY')) p.state = 'IDLE';
 
-                // --- A. 待机环绕 ---
+                // A. 待机环绕
                 if (p.state === 'IDLE') {
                     const angle = t * 0.5 + p.idlePhase;
                     const r = 1.2; 
@@ -403,33 +400,42 @@
                     p.mesh.rotation.y += dt;
                 }
 
-                // --- B. 立体法阵 ---
+                // B. 混沌护盾 (无序乱飞)
                 else if (p.state === 'PALM_ORBIT') {
-                    const r = p.isInnerCircle ? 0.2 : 0.35;
-                    const speed = p.isInnerCircle ? 2.5 : -2.5; 
-                    const angle = t * speed + i * (Math.PI * 2 / PACKET_COUNT);
+                    // 使用原子轨道模型：每个红包有一个随机的 orbitAxis
+                    // 围绕手掌中心旋转
+                    const speed = 4.0; 
+                    const angle = t * speed + p.idlePhase;
+                    const r = 0.35 + Math.sin(angle * 0.5) * 0.05; // 半径呼吸
+
+                    // 计算相对位置：在随机平面上旋转
+                    // 构建两个垂直于 orbitAxis 的向量 v1, v2
+                    // 这里简化：直接用三角函数生成 spherical coordinates 的变体
                     
-                    const target = new THREE.Vector3().copy(palmCenter);
-                    target.x += Math.cos(angle) * r;
-                    target.z += Math.sin(angle) * r;
-                    // 波浪起伏
-                    target.y += Math.sin(angle * 2 + (p.isInnerCircle?0:Math.PI)) * 0.08;
+                    const orbitPos = new THREE.Vector3();
+                    // 基础旋转
+                    orbitPos.x = Math.cos(angle) * r;
+                    orbitPos.y = Math.sin(angle) * Math.sin(p.idlePhase) * r; // 倾斜
+                    orbitPos.z = Math.sin(angle) * Math.cos(p.idlePhase) * r;
                     
-                    p.mesh.position.lerp(target, 0.15);
-                    p.mesh.lookAt(palmCenter);
-                    p.mesh.rotateX(-Math.PI/2); 
-                    p.mesh.rotateZ(90 * Math.PI/180);
+                    // 将这个旋转应用到 orbitAxis 方向 (简化模拟)
+                    orbitPos.applyAxisAngle(p.orbitAxis, angle * 0.1);
+
+                    const target = new THREE.Vector3().copy(palmCenter).add(orbitPos);
+                    
+                    p.mesh.position.lerp(target, 0.1);
+                    // 随机自转
+                    p.mesh.rotateOnAxis(p.orbitAxis, 5 * dt);
                 }
 
-                // --- C. 指尖蓄力 (修改版：上方悬浮) ---
+                // C. 悬顶蓄力
                 else if (p.state === 'FINGER_READY') {
-                    // 关键修改：向上偏移 +0.25米 (25cm)
-                    // 这样红包会悬浮在手指斜上方，像达摩克利斯之剑一样
+                    // 目标点：指尖向前0.2m，向上0.3m (不挡视线)
                     const targetCenter = new THREE.Vector3().copy(fingerTip)
-                        .add(fingerDir.clone().multiplyScalar(0.2)) // 前方20cm
-                        .add(new THREE.Vector3(0, 0.25, 0));        // 上方25cm
+                        .add(fingerDir.clone().multiplyScalar(0.2)) 
+                        .add(new THREE.Vector3(0, 0.3, 0));        
 
-                    // 漂浮感噪声
+                    // 漂浮感
                     const noiseX = Math.sin(t * 2 + i) * 0.03;
                     const noiseY = Math.cos(t * 2.5 + i) * 0.03;
                     const noiseZ = Math.sin(t * 3 + i) * 0.03;
@@ -437,15 +443,14 @@
                     
                     p.mesh.position.lerp(target, 0.1); 
                     
-                    // 指向目标
                     const aimTarget = reticle.visible ? reticle.position : target.clone().add(fingerDir);
                     p.mesh.lookAt(aimTarget);
                     p.mesh.rotateX(-Math.PI/2);
                 }
 
-                // --- D. 弧线射击 ---
+                // D. 弧线射击
                 else if (p.state === 'FLYING') {
-                    const flightDuration = 0.6; // 稍微快一点
+                    const flightDuration = 0.6; 
                     const progress = (t - p.flyStartTime) / flightDuration;
 
                     if (progress >= 1.0) {
@@ -460,15 +465,12 @@
                         const p1 = p.flyControlPos;
                         const p2 = p.flyTargetPos;
 
-                        // B(t) = (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
                         const pos = new THREE.Vector3();
                         pos.addScaledVector(p0, uu);
                         pos.addScaledVector(p1, 2 * u * progress);
                         pos.addScaledVector(p2, tt);
                         
-                        // 朝向轨迹切线方向
                         const tangent = new THREE.Vector3();
-                        // Derivative of quadratic bezier: 2(1-t)(P1-P0) + 2t(P2-P1)
                         const t1 = new THREE.Vector3().subVectors(p1, p0).multiplyScalar(2 * u);
                         const t2 = new THREE.Vector3().subVectors(p2, p1).multiplyScalar(2 * progress);
                         tangent.addVectors(t1, t2).normalize();
