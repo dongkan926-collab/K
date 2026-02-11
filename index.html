@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 终极御剑·完全体</title>
+    <title>Galaxy XR 御剑·最终修正</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: "Microsoft YaHei", sans-serif; }
         
@@ -52,9 +52,9 @@
         <button id="start-btn" disabled>环境检测中...</button>
         
         <div class="guide-grid">
-            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>掌心聚能 (护盾)</div>
-            <div class="guide-card"><span class="icon">☝️</span><b>剑指朝上</b><br>指尖蓄力 (生成)</div>
-            <div class="guide-card"><span class="icon">👉</span><b>剑指前刺</b><br>发射红包 (+100¥)</div>
+            <div class="guide-card"><span class="icon">☝️</span><b>指天</b><br>汇聚蓄力</div>
+            <div class="guide-card"><span class="icon">👉</span><b>指前</b><br>发射红包</div>
+            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>法阵护盾</div>
             <div class="guide-card"><span class="icon">✊</span><b>握拳</b><br>全屏重置</div>
         </div>
     </div>
@@ -77,47 +77,43 @@
         let hand;
         
         const PACKETS = [];
-        const PACKET_COUNT = 40; 
+        const PACKET_COUNT = 50; 
         const TEXTS = []; 
         
-        // 状态变量
+        // 状态
         let currentMode = 'IDLE'; 
         let reticle; 
+        let laserBeam; // 激光射线
         let hitTestSource = null;
         let hitTestSourceRequested = false;
         
         let lastTime = 0;
         let fireRateTimer = 0;
         
-        // UI 绑定
         const btn = document.getElementById('start-btn');
         const overlay = document.getElementById('overlay');
         const statusText = document.getElementById('ar-status');
 
         init();
 
-        // --- 1. 经典红底金福红包 ---
+        // 1. 红包纹理 (经典版)
         function createRedPacketTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 256; canvas.height = 360;
             const ctx = canvas.getContext('2d');
             
             ctx.fillStyle = '#D62828'; ctx.fillRect(0, 0, 256, 360);
-            
             ctx.strokeStyle = '#F77F00'; ctx.lineWidth = 8;
             ctx.beginPath(); ctx.moveTo(20, 100); ctx.quadraticCurveTo(128, 160, 236, 100); ctx.stroke();
-            
             ctx.fillStyle = '#FCBF49'; ctx.beginPath(); ctx.arc(128, 130, 25, 0, Math.PI * 2); ctx.fill();
-            
             ctx.fillStyle = '#D62828'; ctx.font = "bold 30px Microsoft YaHei";
             ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("福", 128, 132);
-            
             ctx.strokeStyle = '#EAE2B7'; ctx.lineWidth = 4; ctx.strokeRect(10, 10, 236, 340);
             
             return new THREE.CanvasTexture(canvas);
         }
 
-        // --- 2. 金色 +100¥ ---
+        // 2. 文字纹理 (+100¥)
         function createTextTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 300; canvas.height = 128;
@@ -154,6 +150,13 @@
             reticle.visible = false;
             scene.add(reticle);
 
+            // 激光辅助线
+            const laserGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,-5)]);
+            const laserMat = new THREE.LineBasicMaterial({ color: 0xFF0000, transparent: true, opacity: 0.5 });
+            laserBeam = new THREE.Line(laserGeo, laserMat);
+            laserBeam.visible = false;
+            scene.add(laserBeam);
+
             // 红包池
             const rpTex = createRedPacketTexture();
             const rpGeo = new THREE.PlaneGeometry(0.08, 0.12);
@@ -166,11 +169,12 @@
                 
                 PACKETS.push({
                     mesh: mesh,
-                    state: 'IDLE', // IDLE, PALM_ORBIT, FINGER_GATHER, FLYING
+                    state: 'IDLE', 
                     targetPos: new THREE.Vector3(),
                     idlePhase: Math.random() * Math.PI * 2,
-                    rotSpeed: 0.5 + Math.random() * 2.0,
-                    gatherOffset: new THREE.Vector3((Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2, (Math.random()-0.5)*0.2)
+                    // 分组用于法阵特效
+                    isInnerCircle: i % 2 === 0, 
+                    gatherOffset: new THREE.Vector3((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3)
                 });
             }
 
@@ -191,6 +195,7 @@
         }
 
         function resetPacketToIdle(mesh, index) {
+            // 初始状态：环绕身体，半径 1.0-1.8m
             const angle = Math.random() * Math.PI * 2;
             const radius = 1.0 + Math.random() * 0.8; 
             const y = (Math.random() - 0.5) * 1.5; 
@@ -263,7 +268,10 @@
 
         function handleGestures(dt) {
             const joints = hand.joints;
-            if (!joints || !joints['wrist']) return;
+            if (!joints || !joints['wrist']) {
+                laserBeam.visible = false;
+                return;
+            }
 
             const wrist = joints['wrist'].position;
             const indexTip = joints['index-finger-tip'].position;
@@ -281,83 +289,85 @@
                 if (currentMode !== 'IDLE') {
                     currentMode = 'IDLE';
                     statusText.innerText = "状态：全屏重置";
-                    // 强制所有红包归位 (不含正在飘字的特效)
                     PACKETS.forEach((p, i) => {
                         p.state = 'IDLE';
                         resetPacketToIdle(p.mesh, i);
                     });
                 }
+                laserBeam.visible = false;
             }
-            // 2. 剑指 (SWORD) - 蓄力 vs 发射
+            // 2. 剑指 (SWORD)
             else if (dIndexMiddle < 0.04 && dIndexWrist > 0.12 && dPinkyWrist < 0.08) {
-                // 计算手指朝向 (指尖 - 手腕)
+                // 计算手指朝向
                 const pointDir = new THREE.Vector3().subVectors(indexTip, wrist).normalize();
                 
-                // 判定：Y轴分量大 -> 朝上指 -> 蓄力
-                // Z轴分量大 (负值) -> 朝前指 -> 发射
-                // 阈值设为 0.5
-                if (pointDir.y > 0.4) {
+                // 更新激光位置
+                laserBeam.position.copy(indexTip);
+                laserBeam.lookAt(new THREE.Vector3().copy(indexTip).add(pointDir));
+                
+                // 判定：Y轴分量 > 0.6 表示指天 -> 蓄力
+                // 否则 -> 指前 -> 发射
+                if (pointDir.y > 0.6) {
                     currentMode = 'SWORD_GATHER';
-                    statusText.innerText = "状态：指尖蓄力 (自动生成)";
-                    regenerateAmmoIfNeed(indexTip);
+                    statusText.innerText = "状态：指尖蓄力 (指天补弹)";
+                    laserBeam.visible = false;
+                    regenerateAmmoIfNeed();
                 } else {
                     currentMode = 'SWORD_SHOOT';
                     statusText.innerText = "状态：发射！";
+                    laserBeam.visible = true; // 显示激光辅助
                     
-                    // 射击逻辑
+                    // 射击
                     fireRateTimer += dt;
-                    if (fireRateTimer > 0.1) { // 射速
+                    if (fireRateTimer > 0.08) { // 射速
                         fireRateTimer = 0;
-                        fireOnePacket(indexTip);
+                        fireOnePacket(indexTip, pointDir);
                     }
                 }
             }
-            // 3. 摊手 (PALM): 护盾 (把这个效果加回来了！)
+            // 3. 摊手 (PALM): 法阵护盾
             else if (dIndexWrist > 0.10 && dPinkyWrist > 0.10 && dThumbIndex > 0.08) {
                 currentMode = 'PALM';
-                statusText.innerText = "状态：掌心护盾";
-                regenerateAmmoIfNeed(wrist); // 摊手时也补弹，保证有东西转
+                statusText.innerText = "状态：法阵护盾";
+                laserBeam.visible = false;
+                regenerateAmmoIfNeed();
+            } else {
+                // 手放下或其他手势
+                laserBeam.visible = false;
             }
         }
 
-        // 自动补弹逻辑：如果当前没有可用的红包，就把死掉的复活
-        function regenerateAmmoIfNeed(spawnPos) {
-            // 检查是否有活着的红包
-            const alive = PACKETS.some(p => p.state !== 'DONE' && p.mesh.visible);
-            
-            // 如果活着的太少，复活一批
-            if (!alive) {
+        function regenerateAmmoIfNeed() {
+            // 如果所有红包都消失了(DONE)，或者剩下的太少，就复活
+            const activeCount = PACKETS.filter(p => p.state !== 'DONE').length;
+            if (activeCount < 5) {
                 PACKETS.forEach((p, i) => {
-                    if (!p.mesh.visible) {
-                         p.state = 'IDLE'; // 先复活成 IDLE，下一帧会被吸过去
-                         // 在身体周围复活
+                    if (p.state === 'DONE') {
+                         p.state = 'IDLE'; 
                          resetPacketToIdle(p.mesh, i);
                     }
                 });
             }
         }
 
-        function fireOnePacket(startPos) {
-            // 确定目标
+        function fireOnePacket(startPos, dir) {
             let target = new THREE.Vector3();
             if (reticle.visible) {
                 target.copy(reticle.position);
             } else {
-                // 盲射
-                const wrist = hand.joints['wrist'].position;
-                const aimDir = new THREE.Vector3().subVectors(startPos, wrist).normalize();
-                target.copy(startPos).add(aimDir.multiplyScalar(4.0));
+                target.copy(startPos).add(dir.multiplyScalar(5.0));
             }
 
-            // 发射优先级：指尖蓄力的 -> 掌心转的 -> 身边飞的
-            let pkt = PACKETS.find(p => p.state === 'FINGER_GATHER');
+            // 发射优先级：指尖 -> 护盾 -> 身边
+            let pkt = PACKETS.find(p => p.state === 'FINGER_READY');
             if (!pkt) pkt = PACKETS.find(p => p.state === 'PALM_ORBIT');
             if (!pkt) pkt = PACKETS.find(p => p.state === 'IDLE');
 
             if (pkt) {
                 pkt.state = 'FLYING';
                 pkt.mesh.visible = true;
-                pkt.mesh.position.copy(startPos); // 强制从指尖发出
+                // 强制修正位置到指尖，保证发射视觉连贯
+                pkt.mesh.position.copy(startPos); 
                 pkt.targetPos.copy(target);
                 
                 pkt.mesh.lookAt(target);
@@ -382,74 +392,86 @@
             
             let palmCenter = new THREE.Vector3();
             let fingerTip = new THREE.Vector3();
+            let fingerDir = new THREE.Vector3();
 
             if (joints && joints['wrist']) {
-                palmCenter.copy(joints['wrist'].position).add(new THREE.Vector3(0, 0.1, 0));
+                const wrist = joints['wrist'].position;
+                palmCenter.copy(wrist).add(new THREE.Vector3(0, 0.05, 0));
                 fingerTip.copy(joints['index-finger-tip'].position);
+                fingerDir.subVectors(fingerTip, wrist).normalize();
             }
 
             PACKETS.forEach((p, i) => {
                 if (!p.mesh.visible) return;
 
-                // --- 状态流转 ---
-                // 1. 如果是摊手，吸到掌心
-                if (currentMode === 'PALM' && (p.state === 'IDLE' || p.state === 'FINGER_GATHER')) {
+                // 状态流转
+                if (currentMode === 'PALM' && (p.state === 'IDLE' || p.state === 'FINGER_READY')) {
                     p.state = 'PALM_ORBIT';
                 }
-                // 2. 如果是剑指蓄力，吸到指尖
-                if (currentMode === 'SWORD_GATHER' && (p.state === 'IDLE' || p.state === 'PALM_ORBIT')) {
-                    p.state = 'FINGER_GATHER';
+                if ((currentMode === 'SWORD_GATHER' || currentMode === 'SWORD_SHOOT') && (p.state === 'IDLE' || p.state === 'PALM_ORBIT')) {
+                    p.state = 'FINGER_READY';
                 }
-                // 3. 如果手松开了(IDLE)，归位
-                if (currentMode === 'IDLE' && (p.state === 'PALM_ORBIT' || p.state === 'FINGER_GATHER')) {
+                if (currentMode === 'IDLE' && (p.state === 'PALM_ORBIT' || p.state === 'FINGER_READY')) {
                     p.state = 'IDLE';
                 }
 
                 // --- 物理运动 ---
 
-                // A. 待机环绕
+                // A. 待机环绕 (身体周围)
                 if (p.state === 'IDLE') {
                     const angle = t * 0.5 + p.idlePhase;
                     const r = 1.2; 
                     const target = new THREE.Vector3(Math.cos(angle)*r, p.mesh.position.y, Math.sin(angle)*r);
                     target.y += Math.sin(t + i)*0.002;
                     p.mesh.position.lerp(target, 0.05);
-                    p.mesh.rotation.y += dt * p.rotSpeed;
+                    p.mesh.rotation.y += dt;
                 }
 
-                // B. 掌心护盾 (你要回来的特效！)
+                // B. 法阵护盾 (摊手特效 - 换感觉了！)
                 else if (p.state === 'PALM_ORBIT') {
-                    const angle = t * 4.0 + i * 0.5; // 快速旋转
-                    const r = 0.3; 
+                    // 内圈和外圈反向旋转，形成法阵感
+                    const r = p.isInnerCircle ? 0.2 : 0.35;
+                    const speed = p.isInnerCircle ? 2.0 : -2.0; // 一正一反
+                    const angle = t * speed + i * (Math.PI * 2 / PACKET_COUNT);
+                    
                     const target = new THREE.Vector3().copy(palmCenter);
                     target.x += Math.cos(angle) * r;
                     target.z += Math.sin(angle) * r;
-                    target.y += Math.sin(angle * 2) * 0.15; // 立体感
+                    // 平铺开，不再是球体
+                    
                     p.mesh.position.lerp(target, 0.1);
-                    p.mesh.rotateY(10 * dt);
+                    // 让他平躺旋转，像一个盘子
+                    p.mesh.lookAt(palmCenter);
+                    p.mesh.rotateX(-Math.PI/2); 
+                    p.mesh.rotateZ(90 * Math.PI/180); // 调整贴图朝向
                 }
 
-                // C. 指尖蓄力
-                else if (p.state === 'FINGER_GATHER') {
-                    const target = new THREE.Vector3().copy(fingerTip).add(p.gatherOffset);
-                    p.mesh.position.lerp(target, 0.2); // 紧吸指尖
-                    p.mesh.lookAt(target);
-                    p.mesh.rotateZ(15 * dt); // 极速自旋
+                // C. 指尖蓄力 (离手指远一点，35cm)
+                else if (p.state === 'FINGER_READY') {
+                    // 目标点：手指前方 0.35米 (推远，不挡视线)
+                    const targetCenter = new THREE.Vector3().copy(fingerTip).add(fingerDir.clone().multiplyScalar(0.35));
+                    // 加上随机偏移，形成一个浮动的能量团
+                    const target = targetCenter.add(p.gatherOffset);
+                    
+                    p.mesh.position.lerp(target, 0.15);
+                    
+                    // 指向目标方向
+                    p.mesh.lookAt(target.clone().add(fingerDir));
+                    p.mesh.rotateZ(10 * dt); // 自旋蓄力
                 }
 
-                // D. 射击飞行
+                // D. 射击
                 else if (p.state === 'FLYING') {
-                    const speed = 8.0;
+                    const speed = 10.0;
                     const dir = new THREE.Vector3().subVectors(p.targetPos, p.mesh.position).normalize();
                     const dist = p.mesh.position.distanceTo(p.targetPos);
                     
                     p.mesh.position.add(dir.multiplyScalar(speed * dt));
-                    p.mesh.rotateZ(20 * dt); // 飞牌特效
+                    p.mesh.rotateZ(20 * dt); 
 
-                    // 击中消失
                     if (dist < 0.2) {
                         p.mesh.visible = false;
-                        p.state = 'DONE'; // 标记为已完成
+                        p.state = 'DONE';
                         spawnPlus100(p.targetPos);
                     }
                 }
