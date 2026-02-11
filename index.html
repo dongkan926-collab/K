@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 御剑红包流</title>
+    <title>Galaxy XR 御剑红包流 (优化版)</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; }
         #info {
@@ -16,11 +16,11 @@
 </head>
 <body>
     <div id="info">
-        检测中...<br>
-        1. 伸出食指中指：御剑 (红包环绕)<br>
-        2. 摊开手掌：回旋 (手心悬浮)<br>
-        3. 快速甩手：万剑齐发<br>
-        4. 握拳：归位 (飘回空中)
+        参数已优化<br>
+        1. 伸出食指中指：御剑 (悬浮于指尖前方15cm)<br>
+        2. 摊开手掌：回旋 (极速召回)<br>
+        3. 快速甩手：万剑齐发 (速度适中)<br>
+        4. 握拳：归位
     </div>
 
     <script type="importmap">
@@ -37,61 +37,45 @@
         import { ARButton } from 'three/addons/webxr/ARButton.js';
 
         let container, camera, scene, renderer;
-        let controller, hand;
+        let hand;
         
-        // 物理与状态变量
         const PACKETS = [];
-        const PACKET_COUNT = 36; // 红包数量，建议36天罡数
-        let currentMode = 'IDLE'; // IDLE, SWORD, PALM, CAST_OUT
+        const PACKET_COUNT = 36;
+        let currentMode = 'IDLE'; 
         
-        // 手部追踪辅助变量
         let previousWristPos = new THREE.Vector3();
-        let handVelocity = new THREE.Vector3();
         let lastTime = 0;
-        let castDirection = new THREE.Vector3(0, 0, -1); // 甩出时的方向
+        let castDirection = new THREE.Vector3(0, 0, -1);
 
         init();
         animate();
 
-        // --- 1. 创建红包纹理 (程序化生成，无需图片文件) ---
         function createRedPacketTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 256;
             canvas.height = 360;
             const ctx = canvas.getContext('2d');
-
-            // 红底
             ctx.fillStyle = '#D62828';
             ctx.fillRect(0, 0, 256, 360);
-            
-            // 金色封口线条
             ctx.strokeStyle = '#F77F00';
             ctx.lineWidth = 8;
             ctx.beginPath();
             ctx.moveTo(20, 100);
             ctx.quadraticCurveTo(128, 160, 236, 100);
             ctx.stroke();
-
-            // 金色圆贴
             ctx.fillStyle = '#FCBF49';
             ctx.beginPath();
             ctx.arc(128, 130, 25, 0, Math.PI * 2);
             ctx.fill();
-
-            // 写个“福”字
             ctx.fillStyle = '#D62828';
             ctx.font = "bold 30px Microsoft YaHei";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
             ctx.fillText("福", 128, 132);
-
-            // 边缘高光
             ctx.strokeStyle = '#EAE2B7';
             ctx.lineWidth = 4;
             ctx.strokeRect(10, 10, 236, 340);
-
-            const texture = new THREE.CanvasTexture(canvas);
-            return texture;
+            return new THREE.CanvasTexture(canvas);
         }
 
         function init() {
@@ -99,7 +83,6 @@
             document.body.appendChild(container);
 
             scene = new THREE.Scene();
-
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -108,51 +91,30 @@
             renderer.xr.enabled = true;
             container.appendChild(renderer.domElement);
 
-            // 光照：环境光+定向光，让红包有立体感
             const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
             light.position.set(0, 1, 0);
             scene.add(light);
-            
-            const dirLight = new THREE.DirectionalLight(0xffd700, 2); // 金光
+            const dirLight = new THREE.DirectionalLight(0xffd700, 2);
             dirLight.position.set(0, 2, -1);
             scene.add(dirLight);
 
-            // --- 创建红包群 ---
             const rpTexture = createRedPacketTexture();
-            const rpGeometry = new THREE.PlaneGeometry(0.06, 0.09); // 真实比例
+            const rpGeometry = new THREE.PlaneGeometry(0.06, 0.09);
             const rpMaterial = new THREE.MeshStandardMaterial({ 
-                map: rpTexture, 
-                side: THREE.DoubleSide,
-                roughness: 0.6,
-                metalness: 0.2
+                map: rpTexture, side: THREE.DoubleSide, roughness: 0.6, metalness: 0.2
             });
 
             for (let i = 0; i < PACKET_COUNT; i++) {
                 const mesh = new THREE.Mesh(rpGeometry, rpMaterial);
-                
-                // 随机分布在前方空间
-                mesh.position.set(
-                    (Math.random() - 0.5) * 2,
-                    1.0 + (Math.random() - 0.5) * 1,
-                    -1.5 + (Math.random() - 0.5) * 1
-                );
-
+                mesh.position.set((Math.random()-0.5)*2, 1.0+(Math.random()-0.5)*1, -1.5+(Math.random()-0.5)*1);
                 scene.add(mesh);
-                
                 PACKETS.push({
                     mesh: mesh,
                     velocity: new THREE.Vector3(0,0,0),
-                    targetOffset: new THREE.Vector3( // 环绕时的随机偏移
-                        (Math.random() - 0.5) * 0.3,
-                        (Math.random() - 0.5) * 0.3, 
-                        (Math.random() - 0.5) * 0.3
-                    ),
-                    phase: Math.random() * Math.PI * 2,
-                    speedFactor: 0.02 + Math.random() * 0.03
+                    phase: Math.random() * Math.PI * 2
                 });
             }
 
-            // --- 初始化 XR 手部 ---
             hand = renderer.xr.getHand(0);
             scene.add(hand);
 
@@ -160,13 +122,11 @@
                 requiredFeatures: ['hand-tracking']
             }));
 
-            window.addEventListener('resize', onWindowResize);
-        }
-
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
         }
 
         function animate() {
@@ -181,50 +141,38 @@
                 updateHandLogic(dt);
                 updatePhysics(dt, timestamp);
             }
-            
             renderer.render(scene, camera);
         }
 
-        // --- 核心逻辑：手势识别与状态机 ---
         function updateHandLogic(dt) {
             const joints = hand.joints;
-            
-            // 如果没检测到手，保持 IDLE
             if (!joints || !joints['wrist']) {
-                // 如果之前已经甩出去了，不要立刻重置，让它们飞一会儿
                 if (currentMode !== 'CAST_OUT') currentMode = 'IDLE';
                 return;
             }
 
             const wrist = joints['wrist'].position;
             const indexTip = joints['index-finger-tip'].position;
-            const indexPhalanx = joints['index-finger-phalanx-proximal'].position; // 指根
-            const middleTip = joints['middle-finger-tip'].position;
-            const ringTip = joints['ring-finger-tip'].position;
             const pinkyTip = joints['pinky-finger-tip'].position;
+            const middleTip = joints['middle-finger-tip'].position;
             const thumbTip = joints['thumb-tip'].position;
 
-            // 1. 计算手速 (用于甩手检测)
-            // 简单的微分计算 V = (Pos2 - Pos1) / t
+            // --- 甩手检测 ---
             if (dt > 0) {
                 const moveDist = wrist.distanceTo(previousWristPos);
-                const currentSpeed = moveDist / dt; // 米/秒
-                
-                // 阈值检测：甩手 (速度大于 2.5m/s 且之前不是甩手状态)
+                const currentSpeed = moveDist / dt;
+                // 维持原来的检测阈值
                 if (currentSpeed > 2.5 && currentMode !== 'CAST_OUT') {
                     currentMode = 'CAST_OUT';
-                    // 计算甩出的向量方向 (从肩膀到手，或者当前运动方向)
                     castDirection.copy(wrist).sub(previousWristPos).normalize();
-                    // 防止除零
                     if (castDirection.lengthSq() === 0) castDirection.set(0, 0, -1);
                     document.getElementById('info').innerText = "状态：万剑齐发！";
                 }
             }
             previousWristPos.copy(wrist);
 
-            // 如果正在“飞出去”，且手速降下来了，不要立刻打断，需要一个重置手势(握拳)
             if (currentMode === 'CAST_OUT') {
-                 // 只有握拳能打断“万剑齐发”
+                 // 只有握拳能打断
                  const isFist = (indexTip.distanceTo(wrist) < 0.1 && pinkyTip.distanceTo(wrist) < 0.1);
                  if (isFist) {
                      currentMode = 'IDLE';
@@ -233,134 +181,121 @@
                  return; 
             }
 
-            // 2. 手势几何判断
-            const distIndexMiddle = indexTip.distanceTo(middleTip); // 食指中指距离
+            // --- 手势识别 ---
+            const distIndexMiddle = indexTip.distanceTo(middleTip);
             const distIndexWrist = indexTip.distanceTo(wrist);
             const distPinkyWrist = pinkyTip.distanceTo(wrist);
             const distThumbIndex = thumbTip.distanceTo(indexTip);
 
-            // 剑指：食指中指并拢 (dist < 3cm)，且伸直 (离手腕远)，小指卷曲 (离手腕近)
-            const isSwordFinger = (distIndexMiddle < 0.035) && (distIndexWrist > 0.12) && (distPinkyWrist < 0.08);
-
-            // 摊手：所有手指都离手腕远
-            const isPalmOpen = (distIndexWrist > 0.10) && (distPinkyWrist > 0.10) && (distThumbIndex > 0.08);
-
-            // 握拳：所有手指离手腕近
-            const isFist = (distIndexWrist < 0.10) && (distPinkyWrist < 0.08);
-
-            if (isSwordFinger) {
+            // 剑指
+            if ((distIndexMiddle < 0.035) && (distIndexWrist > 0.12) && (distPinkyWrist < 0.08)) {
                 currentMode = 'SWORD';
-                document.getElementById('info').innerText = "状态：御剑术 (食指引导)";
-            } else if (isPalmOpen) {
+                document.getElementById('info').innerText = "状态：御剑 (前方悬浮)";
+            } 
+            // 摊手
+            else if ((distIndexWrist > 0.10) && (distPinkyWrist > 0.10) && (distThumbIndex > 0.08)) {
                 currentMode = 'PALM';
-                document.getElementById('info').innerText = "状态：掌上回旋";
-            } else if (isFist) {
+                document.getElementById('info').innerText = "状态：掌上极速回旋";
+            } 
+            // 握拳
+            else if ((distIndexWrist < 0.10) && (distPinkyWrist < 0.08)) {
                 currentMode = 'IDLE';
-                document.getElementById('info').innerText = "状态：归位 (握拳)";
+                document.getElementById('info').innerText = "状态：归位";
             }
         }
 
-        // --- 核心逻辑：物理运动 (Boids Flocking 简化版) ---
         function updatePhysics(dt, time) {
             const t = time * 0.001;
             const joints = hand.joints;
             
-            // 目标中心点
             let targetCenter = new THREE.Vector3();
-            let cohesionStrength = 0; // 凝聚力
-            let orbitSpeed = 0;       // 旋转速度
+            let cohesionStrength = 0; 
+            let orbitSpeed = 0;       
+
+            // === 状态参数调整区 ===
 
             if (currentMode === 'SWORD' && joints['index-finger-tip']) {
-                // 目标是食指尖前方一点点
                 const tip = joints['index-finger-tip'].position;
-                targetCenter.copy(tip); 
-                cohesionStrength = 5.0; // 强力吸引
-                orbitSpeed = 5.0;       // 快速旋转
+                const wrist = joints['wrist'].position;
+
+                // [优化点3] 计算指尖方向向量
+                // 方向 = 指尖 - 手腕 (归一化)
+                const fingerDir = new THREE.Vector3().subVectors(tip, wrist).normalize();
+                
+                // 目标点 = 指尖 + 方向 * 0.15米 (15cm)
+                targetCenter.copy(tip).add(fingerDir.multiplyScalar(0.15));
+
+                // [优化点2] 提高凝聚力，让回来更快
+                cohesionStrength = 15.0; // 原来是 5.0，现在加倍
+                orbitSpeed = 8.0;       // 旋转速度也加快，更酷炫
             } 
             else if (currentMode === 'PALM' && joints['wrist']) {
-                // 目标是手腕上方 15cm
                 const wrist = joints['wrist'].position;
-                targetCenter.copy(wrist).add(new THREE.Vector3(0, 0.15, 0));
-                cohesionStrength = 2.0; // 温和吸引
-                orbitSpeed = 1.0;       // 缓慢旋转
-            }
-            else if (currentMode === 'CAST_OUT') {
-                // 甩手不需要中心吸引，而是赋予初速度
-                cohesionStrength = 0; 
+                targetCenter.copy(wrist).add(new THREE.Vector3(0, 0.2, 0)); // 手心上方20cm
+                
+                // [优化点2] 提高凝聚力
+                cohesionStrength = 8.0; 
+                orbitSpeed = 2.0;       
             }
             else { // IDLE
-                // 飘在空中原位附近
                 targetCenter.set(0, 1.5, -1.0);
                 cohesionStrength = 0.5;
             }
 
             PACKETS.forEach((p, i) => {
-                // 1. 计算期望速度 (Steering Force)
                 const desiredVelocity = new THREE.Vector3();
 
                 if (currentMode === 'CAST_OUT') {
-                    // 飞出模式：持续沿着甩出方向加速，并稍微散开
-                    desiredVelocity.copy(castDirection).multiplyScalar(8.0); // 极速
-                    // 加上一点发散，让它们像散弹枪一样炸开
-                    desiredVelocity.x += (Math.random()-0.5) * 2;
-                    desiredVelocity.y += (Math.random()-0.5) * 2;
+                    // [优化点1] 降低飞出速度
+                    // 原来是 8.0，现在改为 3.5，视觉上更舒适
+                    desiredVelocity.copy(castDirection).multiplyScalar(3.5); 
+                    // 加上较大的随机扩散，让弹道更华丽
+                    desiredVelocity.x += (Math.random()-0.5) * 3;
+                    desiredVelocity.y += (Math.random()-0.5) * 3;
                 } 
                 else if (currentMode === 'SWORD') {
-                    // 御剑模式：螺旋逼近
-                    // 计算环绕位置：在目标周围形成一个环
+                    // 螺旋计算
                     const angle = t * orbitSpeed + p.phase + i * 0.1;
-                    const radius = 0.1 + Math.sin(t * 2 + i) * 0.05; // 动态半径
+                    const radius = 0.08 + Math.sin(t * 3 + i) * 0.04; // 收紧半径，更像一把剑
                     
                     const orbitPos = new THREE.Vector3().copy(targetCenter);
+                    // 根据手腕朝向构建旋转平面比较复杂，这里简化为绕 Y 轴旋转，但在AR中效果足够
                     orbitPos.x += Math.cos(angle) * radius;
                     orbitPos.y += Math.sin(angle) * radius;
-                    // z轴稍微滞后，形成拖尾
-                    orbitPos.z += Math.sin(angle * 0.5) * 0.05;
-
+                    
                     const force = new THREE.Vector3().subVectors(orbitPos, p.mesh.position);
                     desiredVelocity.copy(force).multiplyScalar(cohesionStrength);
                 } 
                 else if (currentMode === 'PALM') {
-                    // 掌心模式：悬浮环绕
-                    const angle = t * 0.5 + p.phase;
+                    const angle = t * orbitSpeed + p.phase;
                     const orbitPos = new THREE.Vector3().copy(targetCenter);
-                    orbitPos.x += Math.cos(angle) * 0.2;
-                    orbitPos.z += Math.sin(angle) * 0.2;
-                    orbitPos.y += Math.sin(t + i) * 0.05; // 上下浮动
-
+                    orbitPos.x += Math.cos(angle) * 0.3; // 摊手时半径大一点
+                    orbitPos.z += Math.sin(angle) * 0.3;
+                    
                     const force = new THREE.Vector3().subVectors(orbitPos, p.mesh.position);
                     desiredVelocity.copy(force).multiplyScalar(cohesionStrength);
                 }
-                else {
-                    // IDLE: 模拟气流浮动
-                    // 使用正弦波叠加噪声
-                    const floatX = Math.sin(t * 0.5 + p.phase) * 0.5;
-                    const floatY = Math.cos(t * 0.3 + p.phase) * 0.2 + 1.2; // 保持高度
+                else { // IDLE 漂浮
+                    const floatX = Math.sin(t * 0.5 + p.phase) * 0.8;
+                    const floatY = Math.cos(t * 0.3 + p.phase) * 0.3 + 1.2;
                     const floatZ = -1.0 + Math.sin(t * 0.2 + i) * 0.5;
-                    
                     const idleTarget = new THREE.Vector3(floatX, floatY, floatZ);
                     const force = new THREE.Vector3().subVectors(idleTarget, p.mesh.position);
                     desiredVelocity.copy(force).multiplyScalar(0.2);
                 }
 
-                // 2. 物理积分 (Euler Integration)
-                // 速度平滑插值 (Inertia/惯性)
-                const smoothFactor = (currentMode === 'SWORD' || currentMode === 'CAST_OUT') ? 0.1 : 0.05;
-                p.velocity.lerp(desiredVelocity, smoothFactor);
+                // [优化点2] 提高响应速度 (Lerp Factor)
+                // 归位或御剑时，因子从 0.1 提升到 0.25，这意味着每一帧修正 25% 的速度差，响应极快
+                const smoothFactor = (currentMode === 'SWORD' || currentMode === 'PALM') ? 0.25 : 0.05;
                 
+                p.velocity.lerp(desiredVelocity, smoothFactor);
                 p.mesh.position.add(new THREE.Vector3().copy(p.velocity).multiplyScalar(dt));
 
-                // 3. 姿态朝向 (Look At Velocity)
-                // 让红包的“顶部”或者“平面”顺着速度方向，产生空气动力学的感觉
+                // 姿态朝向
                 if (p.velocity.lengthSq() > 0.001) {
-                    // 创建一个看向目标位置的旋转矩阵
-                    // 我们希望红包的 -Z 轴 (物体前方) 指向速度方向
                     const targetLook = new THREE.Vector3().copy(p.mesh.position).add(p.velocity);
                     p.mesh.lookAt(targetLook);
-                    
-                    // 修正旋转：PlaneGeometry 默认是面向 Z 轴的，我们需要它“平着飞”或者“竖着切”
-                    // 这里我们让它像飞牌一样：
-                    p.mesh.rotateX(-Math.PI / 2); // 调整使其像飞毯或飞剑
+                    p.mesh.rotateX(-Math.PI / 2); 
                 }
             });
         }
