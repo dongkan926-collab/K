@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 最终御剑版</title>
+    <title>Galaxy XR 御剑红包 (最终逻辑版)</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; }
         #info {
@@ -16,10 +16,11 @@
 </head>
 <body>
     <div id="info">
-        最终优化版<br>
-        1. 御剑：整齐划一，极速响应<br>
-        2. 悬浮/归位：随机翻滚，更有灵气<br>
-        3. 甩手：高速自旋飞出
+        逻辑更新：<br>
+        1. 平时：悬浮于头顶5米高空<br>
+        2. 摊手：立体原子环绕<br>
+        3. 甩手：散射飞出，8米消失<br>
+        4. 握拳：头顶生成新红包
     </div>
 
     <script type="importmap">
@@ -45,6 +46,7 @@
         let previousWristPos = new THREE.Vector3();
         let lastTime = 0;
         let castDirection = new THREE.Vector3(0, 0, -1);
+        let castOrigin = new THREE.Vector3(); // 记录甩手时的位置
 
         init();
         animate();
@@ -55,7 +57,6 @@
             canvas.height = 360;
             const ctx = canvas.getContext('2d');
             
-            // 样式保持不变
             ctx.fillStyle = '#D62828';
             ctx.fillRect(0, 0, 256, 360);
             ctx.strokeStyle = '#F77F00';
@@ -108,16 +109,24 @@
 
             for (let i = 0; i < PACKET_COUNT; i++) {
                 const mesh = new THREE.Mesh(rpGeometry, rpMaterial);
-                mesh.position.set((Math.random()-0.5)*2, 1.0+(Math.random()-0.5)*1, -1.5+(Math.random()-0.5)*1);
+                
+                // 初始位置直接生成在头顶高空
+                mesh.position.set(
+                    (Math.random()-0.5)*4, 
+                    4.0 + Math.random()*2, // 高度 4-6米
+                    (Math.random()-0.5)*4
+                );
+                
                 scene.add(mesh);
                 
                 PACKETS.push({
                     mesh: mesh,
                     velocity: new THREE.Vector3(0,0,0),
                     phase: Math.random() * Math.PI * 2,
-                    // 新增：每个红包独有的旋转速度轴，用于非御剑状态
-                    rotAxis: new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize(),
-                    rotSpeed: 2.0 + Math.random() * 3.0
+                    rotAxis: new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize(),
+                    rotSpeed: 1.0 + Math.random() * 2.0,
+                    // 只有甩出去时才会用到 scatterDir
+                    scatterDir: new THREE.Vector3() 
                 });
             }
 
@@ -133,6 +142,23 @@
                 camera.updateProjectionMatrix();
                 renderer.setSize(window.innerWidth, window.innerHeight);
             });
+        }
+
+        // --- 新增：再生逻辑 (重置所有红包到天上) ---
+        function respawnPackets() {
+            PACKETS.forEach(p => {
+                // 瞬间传送到头顶高空随机位置
+                p.mesh.position.set(
+                    (Math.random()-0.5) * 3, 
+                    4.5 + Math.random() * 2, // 4.5米到6.5米之间
+                    (Math.random()-0.5) * 3
+                );
+                // 速度归零
+                p.velocity.set(0, 0, 0);
+                // 重新可见
+                p.mesh.visible = true;
+            });
+            document.getElementById('info').innerText = "状态：红包已重置 (头顶生成)";
         }
 
         function animate() {
@@ -153,7 +179,7 @@
         function updateHandLogic(dt) {
             const joints = hand.joints;
             if (!joints || !joints['wrist']) {
-                if (currentMode !== 'CAST_OUT') currentMode = 'IDLE';
+                // 如果手丢了，保持当前状态 (如果是飞出状态就继续飞)
                 return;
             }
 
@@ -167,20 +193,36 @@
             if (dt > 0) {
                 const moveDist = wrist.distanceTo(previousWristPos);
                 const currentSpeed = moveDist / dt;
+                
+                // 速度大于 2.5 触发甩出
                 if (currentSpeed > 2.5 && currentMode !== 'CAST_OUT') {
                     currentMode = 'CAST_OUT';
+                    castOrigin.copy(wrist); // 记录发射点
                     castDirection.copy(wrist).sub(previousWristPos).normalize();
                     if (castDirection.lengthSq() === 0) castDirection.set(0, 0, -1);
-                    document.getElementById('info').innerText = "状态：万剑齐发！";
+                    
+                    // 为每个红包计算一个散射方向 (Shotgun Effect)
+                    PACKETS.forEach(p => {
+                        // 基础方向是甩手方向
+                        p.scatterDir.copy(castDirection);
+                        // 加上随机偏移，形成锥形散射
+                        p.scatterDir.x += (Math.random() - 0.5) * 0.8; 
+                        p.scatterDir.y += (Math.random() - 0.5) * 0.8;
+                        p.scatterDir.z += (Math.random() - 0.5) * 0.8;
+                        p.scatterDir.normalize();
+                    });
+
+                    document.getElementById('info').innerText = "状态：散财！(飞出消失)";
                 }
             }
             previousWristPos.copy(wrist);
 
+            // 如果正在飞出，只有握拳能重置
             if (currentMode === 'CAST_OUT') {
                  const isFist = (indexTip.distanceTo(wrist) < 0.1 && pinkyTip.distanceTo(wrist) < 0.1);
                  if (isFist) {
                      currentMode = 'IDLE';
-                     document.getElementById('info').innerText = "状态：归位";
+                     respawnPackets(); // 触发再生逻辑
                  }
                  return; 
             }
@@ -194,17 +236,20 @@
             // 剑指
             if ((distIndexMiddle < 0.035) && (distIndexWrist > 0.12) && (distPinkyWrist < 0.08)) {
                 currentMode = 'SWORD';
-                document.getElementById('info').innerText = "状态：御剑 (锁定视角)";
+                document.getElementById('info').innerText = "状态：御剑 (指尖悬浮)";
             } 
             // 摊手
             else if ((distIndexWrist > 0.10) && (distPinkyWrist > 0.10) && (distThumbIndex > 0.08)) {
                 currentMode = 'PALM';
-                document.getElementById('info').innerText = "状态：掌上回旋 (随机翻滚)";
+                document.getElementById('info').innerText = "状态：环绕 (立体护盾)";
             } 
             // 握拳
             else if ((distIndexWrist < 0.10) && (distPinkyWrist < 0.08)) {
-                currentMode = 'IDLE';
-                document.getElementById('info').innerText = "状态：归位";
+                // 如果当前不是 IDLE，说明刚做完动作，握拳归位
+                if (currentMode !== 'IDLE') {
+                    currentMode = 'IDLE';
+                    respawnPackets(); // 握拳也触发重置逻辑，把没发出去的收回天上
+                }
             }
         }
 
@@ -214,106 +259,44 @@
             
             let targetCenter = new THREE.Vector3();
             let cohesionStrength = 0; 
-            let orbitSpeed = 0;       
 
+            // === 设定目标中心 ===
             if (currentMode === 'SWORD' && joints['index-finger-tip']) {
                 const tip = joints['index-finger-tip'].position;
                 const wrist = joints['wrist'].position;
                 const fingerDir = new THREE.Vector3().subVectors(tip, wrist).normalize();
                 
+                // 距离指尖 15cm
                 targetCenter.copy(tip).add(fingerDir.multiplyScalar(0.15));
-                
-                // 保持高凝聚力
-                cohesionStrength = 20.0; 
-                orbitSpeed = 8.0;       
+                cohesionStrength = 15.0; 
             } 
             else if (currentMode === 'PALM' && joints['wrist']) {
                 const wrist = joints['wrist'].position;
-                targetCenter.copy(wrist).add(new THREE.Vector3(0, 0.2, 0));
-                
-                // 归位也需要很快，数值拉大
-                cohesionStrength = 18.0; 
-                orbitSpeed = 2.0;       
+                targetCenter.copy(wrist).add(new THREE.Vector3(0, 0.15, 0));
+                cohesionStrength = 10.0; 
             }
-            else { // IDLE
-                targetCenter.set(0, 1.5, -1.0);
-                // IDLE 状态如果从远处回来，也需要较大的力，但到了之后要柔和
-                // 这里我们给一个较大的基础值，确保“归位”不慢
-                cohesionStrength = 5.0;
+            else { 
+                // IDLE: 目标在头顶高空 (0, 5, 0)
+                // 这样平时你看不见它们，或者只能抬头看见
+                targetCenter.set(0, 5.0, -1.0);
+                cohesionStrength = 2.0;
             }
 
             PACKETS.forEach((p, i) => {
+                // 如果已经不可见（飞出去了），就跳过物理计算，省性能
+                if (!p.mesh.visible) return;
+
                 const desiredVelocity = new THREE.Vector3();
 
-                // --- 1. 位置计算 ---
+                // --- 1. 飞出模式 (CAST_OUT) ---
                 if (currentMode === 'CAST_OUT') {
-                    desiredVelocity.copy(castDirection).multiplyScalar(3.5); 
-                    desiredVelocity.x += (Math.random()-0.5) * 3;
-                    desiredVelocity.y += (Math.random()-0.5) * 3;
-                } 
-                else if (currentMode === 'SWORD') {
-                    const angle = t * orbitSpeed + p.phase + i * 0.1;
-                    const radius = 0.08 + Math.sin(t * 3 + i) * 0.04;
-                    const orbitPos = new THREE.Vector3().copy(targetCenter);
-                    orbitPos.x += Math.cos(angle) * radius;
-                    orbitPos.y += Math.sin(angle) * radius;
+                    // 使用之前计算好的散射方向
+                    // 速度调慢：从 3.5 降到 1.5，慢慢飞
+                    desiredVelocity.copy(p.scatterDir).multiplyScalar(1.5);
                     
-                    const force = new THREE.Vector3().subVectors(orbitPos, p.mesh.position);
-                    desiredVelocity.copy(force).multiplyScalar(cohesionStrength);
-                } 
-                else if (currentMode === 'PALM') {
-                    const angle = t * orbitSpeed + p.phase;
-                    const orbitPos = new THREE.Vector3().copy(targetCenter);
-                    orbitPos.x += Math.cos(angle) * 0.3; 
-                    orbitPos.z += Math.sin(angle) * 0.3;
-                    
-                    const force = new THREE.Vector3().subVectors(orbitPos, p.mesh.position);
-                    desiredVelocity.copy(force).multiplyScalar(cohesionStrength);
-                }
-                else { // IDLE
-                    const floatX = Math.sin(t * 0.5 + p.phase) * 0.8;
-                    const floatY = Math.cos(t * 0.3 + p.phase) * 0.3 + 1.2;
-                    const floatZ = -1.0 + Math.sin(t * 0.2 + i) * 0.5;
-                    const idleTarget = new THREE.Vector3(floatX, floatY, floatZ);
-                    const force = new THREE.Vector3().subVectors(idleTarget, p.mesh.position);
-                    desiredVelocity.copy(force).multiplyScalar(cohesionStrength); // 使用加强后的拉力
-                }
+                    // 物理移动
+                    p.velocity.lerp(desiredVelocity, 0.2);
+                    p.mesh.position.add(new THREE.Vector3().copy(p.velocity).multiplyScalar(dt));
 
-                // --- 2. 速度应用 (响应速度提升) ---
-                // smoothFactor 提升到 0.4，意味着响应极其迅速，解决“回来的太慢”
-                let smoothFactor = 0.4; 
-                if (currentMode === 'IDLE') smoothFactor = 0.1; // IDLE 时稍微柔和一点，避免抖动
-
-                p.velocity.lerp(desiredVelocity, smoothFactor);
-                p.mesh.position.add(new THREE.Vector3().copy(p.velocity).multiplyScalar(dt));
-
-                // --- 3. 旋转姿态 (核心修改) ---
-                if (currentMode === 'SWORD') {
-                    // 御剑：必须整齐，全部指向前方 (朝向 velocity 或 手指方向)
-                    // 这里用 lookAt velocity 产生流线感
-                    if (p.velocity.lengthSq() > 0.001) {
-                        const targetLook = new THREE.Vector3().copy(p.mesh.position).add(p.velocity);
-                        p.mesh.lookAt(targetLook);
-                        p.mesh.rotateX(-Math.PI / 2); 
-                    }
-                } 
-                else if (currentMode === 'CAST_OUT') {
-                     // 飞出：高速自旋 (像飞牌)
-                     if (p.velocity.lengthSq() > 0.001) {
-                        const targetLook = new THREE.Vector3().copy(p.mesh.position).add(p.velocity);
-                        p.mesh.lookAt(targetLook);
-                        p.mesh.rotateX(-Math.PI / 2); 
-                        // 额外增加绕自身Z轴旋转
-                        p.mesh.rotateZ(t * 10); 
-                    }
-                }
-                else {
-                    // IDLE 和 PALM：随机翻滚，不要整齐
-                    // 绕着各自随机定义的轴旋转
-                    p.mesh.rotateOnAxis(p.rotAxis, p.rotSpeed * dt);
-                }
-            });
-        }
-    </script>
-</body>
-</html>
+                    // 旋转：高速自旋
+                    p.mesh.rotateZ(1
