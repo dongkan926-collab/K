@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 御剑·智能瞄准版</title>
+    <title>Galaxy XR 御剑·最终修复版</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: "Microsoft YaHei", sans-serif; }
         
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(135deg, #111 0%, #3a0000 100%);
+            background: linear-gradient(135deg, #2b0a0a 0%, #000 100%);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
             z-index: 9999; color: #fff;
         }
@@ -22,7 +22,9 @@
             color: #fff; background: linear-gradient(to right, #D62828, #B71C1C);
             border: 2px solid #FFD700; border-radius: 50px; cursor: pointer;
             box-shadow: 0 0 20px rgba(214, 40, 40, 0.4);
+            transition: 0.3s;
         }
+        #start-btn:active { transform: scale(0.95); }
 
         .guide-grid {
             margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
@@ -46,13 +48,13 @@
 
     <div id="overlay">
         <h1>御剑·发红包</h1>
-        <div class="subtitle">智能辅助瞄准系统</div>
+        <div class="subtitle">Galaxy XR 增强现实体验</div>
         <button id="start-btn" disabled>环境检测中...</button>
         
         <div class="guide-grid">
             <div class="guide-card"><span class="icon">☝️</span><b>指天</b><br>悬顶蓄力 (补弹)</div>
-            <div class="guide-card"><span class="icon">👉</span><b>指前</b><br>自动锁定 (+100¥)</div>
-            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>混沌力场</div>
+            <div class="guide-card"><span class="icon">👉</span><b>指前</b><br>弧线轰炸 (+100¥)</div>
+            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>立体法阵</div>
             <div class="guide-card"><span class="icon">✊</span><b>握拳</b><br>全屏重置</div>
         </div>
     </div>
@@ -74,13 +76,13 @@
         let container, camera, scene, renderer;
         let hand;
         
-        const PACKET_COUNT = 50; 
-        const EFFECT_POOL_SIZE = 30;
-        
-        // 对象池
         const PACKETS = [];
-        const EFFECT_POOL = []; 
-        let effectPoolIndex = 0;
+        const PACKET_COUNT = 50; 
+        
+        // --- 修复死机：预加载特效池 ---
+        const TEXT_POOL = [];
+        const TEXT_POOL_SIZE = 20; 
+        let textPoolIndex = 0;
         
         // 状态
         let currentMode = 'IDLE'; 
@@ -88,23 +90,9 @@
         let hitTestSource = null;
         let hitTestSourceRequested = false;
         
-        // --- 智能瞄准变量 ---
-        const _smartTarget = new THREE.Vector3(); // 最终平滑后的目标点
-        let _hasRealHit = false; // 是否真的扫到了平面
-        
         let lastTime = 0;
         let fireRateTimer = 0;
-
-        // 全局复用向量 (GC 优化)
-        const _v1 = new THREE.Vector3();
-        const _v2 = new THREE.Vector3();
-        const _v3 = new THREE.Vector3();
-        const _tempVec = new THREE.Vector3();
-        const _palmCenter = new THREE.Vector3();
-        const _fingerTip = new THREE.Vector3();
-        const _fingerDir = new THREE.Vector3();
-        const _wrist = new THREE.Vector3();
-
+        
         const btn = document.getElementById('start-btn');
         const overlay = document.getElementById('overlay');
         const statusText = document.getElementById('ar-status');
@@ -113,27 +101,27 @@
 
         function createRedPacketTexture() {
             const canvas = document.createElement('canvas');
-            canvas.width = 128; canvas.height = 180; 
+            canvas.width = 256; canvas.height = 360;
             const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#D62828'; ctx.fillRect(0, 0, 128, 180);
-            ctx.strokeStyle = '#F77F00'; ctx.lineWidth = 4;
-            ctx.beginPath(); ctx.moveTo(10, 50); ctx.quadraticCurveTo(64, 80, 118, 50); ctx.stroke();
-            ctx.fillStyle = '#FCBF49'; ctx.beginPath(); ctx.arc(64, 65, 12, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#D62828'; ctx.font = "bold 16px Microsoft YaHei";
-            ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("福", 64, 66);
-            ctx.strokeStyle = '#EAE2B7'; ctx.lineWidth = 2; ctx.strokeRect(5, 5, 118, 170);
+            ctx.fillStyle = '#D62828'; ctx.fillRect(0, 0, 256, 360);
+            ctx.strokeStyle = '#F77F00'; ctx.lineWidth = 8;
+            ctx.beginPath(); ctx.moveTo(20, 100); ctx.quadraticCurveTo(128, 160, 236, 100); ctx.stroke();
+            ctx.fillStyle = '#FCBF49'; ctx.beginPath(); ctx.arc(128, 130, 25, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = '#D62828'; ctx.font = "bold 30px Microsoft YaHei";
+            ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("福", 128, 132);
+            ctx.strokeStyle = '#EAE2B7'; ctx.lineWidth = 4; ctx.strokeRect(10, 10, 236, 340);
             return new THREE.CanvasTexture(canvas);
         }
 
         function createTextTexture() {
             const canvas = document.createElement('canvas');
-            canvas.width = 256; canvas.height = 128;
+            canvas.width = 300; canvas.height = 128;
             const ctx = canvas.getContext('2d');
-            ctx.font = "bold 60px Arial";
+            ctx.font = "bold 80px Arial";
             ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillStyle = "#FFD700"; ctx.strokeStyle = "#D50000"; ctx.lineWidth = 3;
-            ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 2;
-            ctx.strokeText("+100¥", 128, 64); ctx.fillText("+100¥", 128, 64);
+            ctx.fillStyle = "#FFD700"; ctx.strokeStyle = "#D50000"; ctx.lineWidth = 4;
+            ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 4;
+            ctx.strokeText("+100¥", 150, 64); ctx.fillText("+100¥", 150, 64);
             return new THREE.CanvasTexture(canvas);
         }
 
@@ -145,65 +133,55 @@
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
             renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.xr.enabled = true;
             container.appendChild(renderer.domElement);
 
-            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
+            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2.0);
             scene.add(hemiLight);
-            const dirLight = new THREE.DirectionalLight(0xffd700, 1.0);
-            dirLight.position.set(0, 5, 0);
-            scene.add(dirLight);
             
-            // 金色准星 (Always Visible)
-            const reticleGeo = new THREE.RingGeometry(0.04, 0.05, 32);
-            const reticleMat = new THREE.MeshBasicMaterial({ 
-                color: 0xFFD700, 
-                transparent: true, 
-                opacity: 0.8,
-                depthTest: false // 关键：让准星永远显示在最前面，不被物体遮挡
-            }); 
+            // 金色准星
+            const reticleGeo = new THREE.RingGeometry(0.03, 0.04, 32);
+            const reticleMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 }); 
             reticle = new THREE.Mesh(reticleGeo, reticleMat);
             reticle.rotation.x = -Math.PI / 2;
-            reticle.visible = true; // 默认可见
+            reticle.visible = false;
             scene.add(reticle);
 
-            // 特效池
+            // --- 初始化特效池 (关键修复：防止无限创建导致死机) ---
             const textTex = createTextTexture();
-            const textMat = new THREE.SpriteMaterial({ map: textTex, transparent: true, opacity: 0, depthTest: false });
-            for (let i = 0; i < EFFECT_POOL_SIZE; i++) {
-                const sprite = new THREE.Sprite(textMat.clone());
-                sprite.visible = false;
-                sprite.scale.set(0.6, 0.3, 1);
-                sprite.renderOrder = 999; 
+            const textMat = new THREE.SpriteMaterial({ map: textTex, transparent: true, opacity: 0 }); // 共享材质
+            
+            for (let i = 0; i < TEXT_POOL_SIZE; i++) {
+                // 克隆材质以独立控制透明度，但纹理共享
+                const mat = textMat.clone(); 
+                const sprite = new THREE.Sprite(mat);
+                sprite.scale.set(0.6, 0.25, 1);
+                sprite.visible = false; // 初始隐藏
                 scene.add(sprite);
-                EFFECT_POOL.push({ sprite: sprite, life: 0 });
+                TEXT_POOL.push({ sprite: sprite, life: 0 });
             }
 
-            // 红包池
+            // --- 初始化红包 ---
             const rpTex = createRedPacketTexture();
             const rpGeo = new THREE.PlaneGeometry(0.08, 0.12);
-            const rpMat = new THREE.MeshStandardMaterial({ map: rpTex, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.1 });
+            const rpMat = new THREE.MeshStandardMaterial({ map: rpTex, side: THREE.DoubleSide, roughness: 0.5, metalness: 0.1 });
 
             for (let i = 0; i < PACKET_COUNT; i++) {
                 const mesh = new THREE.Mesh(rpGeo, rpMat);
                 resetPacketToIdle(mesh, i);
                 scene.add(mesh);
                 
-                const chaosAxis = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
-                
                 PACKETS.push({
                     mesh: mesh,
                     state: 'IDLE', 
                     targetPos: new THREE.Vector3(),
                     idlePhase: Math.random() * Math.PI * 2,
-                    chaosAxis: chaosAxis,
-                    chaosSpeed: 1.0 + Math.random() * 3.0,
-                    gatherOffset: new THREE.Vector3((Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4),
+                    isInnerCircle: i % 2 === 0, 
+                    gatherOffset: new THREE.Vector3((Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3, (Math.random()-0.5)*0.3),
                     flyStartPos: new THREE.Vector3(),
                     flyControlPos: new THREE.Vector3(),
-                    flyTargetPos: new THREE.Vector3(), 
                     flyStartTime: 0
                 });
             }
@@ -214,7 +192,7 @@
             if ('xr' in navigator) {
                 navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
                     if (supported) {
-                        btn.innerText = "启动·御剑 (智能瞄准)";
+                        btn.innerText = "启动·御剑发红包";
                         btn.disabled = false;
                         btn.onclick = onStartAR;
                     } else {
@@ -262,7 +240,7 @@
             lastTime = timestamp;
 
             if (renderer.xr.isPresenting) {
-                updateReticle(frame, dt); // 新的准星逻辑
+                handleHitTest(frame);
                 handleGestures(dt);
                 updatePackets(dt, timestamp);
                 updateEffects(dt);
@@ -270,22 +248,7 @@
             renderer.render(scene, camera);
         }
 
-        // --- 核心更新：智能准星逻辑 ---
-        function updateReticle(frame, dt) {
-            // 默认目标：手指前方 2.5 米 (虚空锁定)
-            // 先获取手指方向
-            let defaultTarget = _v1.set(0, 0, -2.5).applyMatrix4(camera.matrixWorld); // 默认相机前方
-            
-            // 如果能检测到手指，优先用手指方向
-            if (hand.joints && hand.joints['index-finger-tip'] && hand.joints['wrist']) {
-                _fingerTip.copy(hand.joints['index-finger-tip'].position);
-                _wrist.copy(hand.joints['wrist'].position);
-                _fingerDir.subVectors(_fingerTip, _wrist).normalize();
-                
-                // 默认位置：指尖前方 2.5米
-                defaultTarget.copy(_fingerTip).add(_fingerDir.clone().multiplyScalar(2.5));
-            }
-
+        function handleHitTest(frame) {
             const session = renderer.xr.getSession();
             if (!hitTestSourceRequested) {
                 session.requestReferenceSpace('viewer').then((refSpace) => {
@@ -295,77 +258,35 @@
                 });
                 hitTestSourceRequested = true;
             }
-
-            let hitPos = null;
-
             if (hitTestSource) {
                 const hitTestResults = frame.getHitTestResults(hitTestSource);
                 if (hitTestResults.length > 0) {
                     const hit = hitTestResults[0];
                     const pose = hit.getPose(renderer.xr.getReferenceSpace());
-                    
-                    // 获取真实物理碰撞点
-                    hitPos = _v2.copy(pose.transform.position);
-                    _hasRealHit = true;
-
-                    // 【智能修正】：如果打中了很低的地方（比如地面），大概率是指着人的脚
-                    // 自动把准星抬高 1.5 米 (打胸口)
-                    // 假设相机高度约为 1.5m，如果 hitPos.y 比相机低很多...
-                    // 简单粗暴逻辑：如果 hitPos.y < 0.5 (在地面)，就抬高
-                    // 但 AR 坐标系原点不一定在地面。
-                    // 更好的逻辑：不做高度假设，只做平滑。
-                    // 或者：保留真实表面吸附，但让 reticle 稍微浮起一点
+                    reticle.visible = true;
+                    reticle.position.copy(pose.transform.position);
+                    reticle.rotation.y += 0.05;
                 } else {
-                    _hasRealHit = false;
+                    reticle.visible = false;
                 }
             }
-
-            // 最终目标点决策
-            if (_hasRealHit && hitPos) {
-                // 如果有真实碰撞，优先吸附真实表面
-                // 平滑插值：让准星从当前位置慢慢飘过去，不要瞬间跳变
-                _smartTarget.lerp(hitPos, 0.4); 
-                
-                // 真实命中时，准星实体化
-                reticle.material.opacity = 0.9;
-                reticle.scale.setScalar(1.0);
-            } else {
-                // 如果没有检测到表面（比如指着人，或者虚空），使用默认距离
-                _smartTarget.lerp(defaultTarget, 0.1); // 这种移动更慢、更柔和
-                
-                // 虚空瞄准时，准星半透明
-                reticle.material.opacity = 0.4;
-                reticle.scale.setScalar(0.8);
-            }
-
-            // 应用位置
-            reticle.position.copy(_smartTarget);
-            
-            // 让准星始终朝向用户 (Billboarding)
-            reticle.lookAt(camera.position); 
-            
-            // 自转特效
-            reticle.rotation.z += 1.0 * dt; 
         }
 
         function handleGestures(dt) {
             const joints = hand.joints;
             if (!joints || !joints['wrist']) return;
 
-            // 复用全局变量
-            _wrist.copy(joints['wrist'].position);
-            _fingerTip.copy(joints['index-finger-tip'].position);
-            
+            const wrist = joints['wrist'].position;
+            const indexTip = joints['index-finger-tip'].position;
             const middleTip = joints['middle-finger-tip'].position;
             const thumbTip = joints['thumb-tip'].position;
             const pinkyTip = joints['pinky-finger-tip'].position;
 
-            const dIndexMiddle = _fingerTip.distanceTo(middleTip);
-            const dIndexWrist = _fingerTip.distanceTo(_wrist);
-            const dPinkyWrist = pinkyTip.distanceTo(_wrist);
-            const dThumbIndex = thumbTip.distanceTo(_fingerTip);
+            const dIndexMiddle = indexTip.distanceTo(middleTip);
+            const dIndexWrist = indexTip.distanceTo(wrist);
+            const dPinkyWrist = pinkyTip.distanceTo(wrist);
+            const dThumbIndex = thumbTip.distanceTo(indexTip);
 
-            // 1. 重置
             if (dIndexWrist < 0.10 && dPinkyWrist < 0.08) {
                 if (currentMode !== 'IDLE') {
                     currentMode = 'IDLE';
@@ -376,38 +297,33 @@
                     });
                 }
             }
-            // 2. 剑指
             else if (dIndexMiddle < 0.04 && dIndexWrist > 0.12 && dPinkyWrist < 0.08) {
-                _fingerDir.subVectors(_fingerTip, _wrist).normalize();
+                const pointDir = new THREE.Vector3().subVectors(indexTip, wrist).normalize();
                 
-                if (_fingerDir.y > 0.6) { // 朝上
+                if (pointDir.y > 0.5) { 
                     currentMode = 'SWORD_GATHER';
                     statusText.innerText = "状态：悬顶蓄力";
                     regenerateAmmoIfNeed();
-                } else { // 朝前
+                } else { 
                     currentMode = 'SWORD_SHOOT';
-                    statusText.innerText = "状态：锁定发射！";
+                    statusText.innerText = "状态：弧线发射！";
                     
                     fireRateTimer += dt;
                     if (fireRateTimer > 0.08) { 
                         fireRateTimer = 0;
-                        fireOnePacket(); 
+                        fireOnePacket(indexTip, pointDir);
                     }
                 }
             }
-            // 3. 摊手
             else if (dIndexWrist > 0.10 && dPinkyWrist > 0.10 && dThumbIndex > 0.08) {
                 currentMode = 'PALM';
-                statusText.innerText = "状态：混沌力场";
+                statusText.innerText = "状态：立体法阵";
                 regenerateAmmoIfNeed();
             }
         }
 
         function regenerateAmmoIfNeed() {
-            let activeCount = 0;
-            for(let i=0; i<PACKET_COUNT; i++) {
-                if (PACKETS[i].state !== 'DONE') activeCount++;
-            }
+            const activeCount = PACKETS.filter(p => p.state !== 'DONE').length;
             if (activeCount < 10) {
                 PACKETS.forEach((p, i) => {
                     if (p.state === 'DONE') {
@@ -418,116 +334,128 @@
             }
         }
 
-        function fireOnePacket() {
-            // 直接使用智能准星的位置 (_smartTarget)
-            // 无论是有真实平面，还是虚空锁定，它都有一个坐标
-            _target.copy(reticle.position);
+        function fireOnePacket(startPos, dir) {
+            let target = new THREE.Vector3();
+            
+            // --- 修复瞄准逻辑 ---
+            if (reticle.visible) {
+                // 如果 AR 识别到了平面，用准星
+                target.copy(reticle.position);
+            } else {
+                // 如果指着人（没有平面），使用“虚空锁定”
+                // 沿着手指方向向前 3 米
+                target.copy(startPos).add(dir.multiplyScalar(3.0));
+            }
 
-            let pkt = null;
-            for(let i=0; i<PACKET_COUNT; i++) {
-                if (PACKETS[i].state === 'FINGER_READY') { pkt = PACKETS[i]; break; }
-            }
-            if (!pkt) {
-                for(let i=0; i<PACKET_COUNT; i++) {
-                    if (PACKETS[i].state === 'PALM_ORBIT' || PACKETS[i].state === 'IDLE') { pkt = PACKETS[i]; break; }
-                }
-            }
+            let pkt = PACKETS.find(p => p.state === 'FINGER_READY');
+            if (!pkt) pkt = PACKETS.find(p => p.state === 'PALM_ORBIT');
+            if (!pkt) pkt = PACKETS.find(p => p.state === 'IDLE');
 
             if (pkt) {
                 pkt.state = 'FLYING';
                 pkt.mesh.visible = true;
                 pkt.flyStartPos.copy(pkt.mesh.position); 
-                pkt.flyTargetPos.copy(_target);
+                pkt.flyTargetPos.copy(target);
                 pkt.flyStartTime = performance.now() * 0.001; 
                 
-                // 贝塞尔
-                _v1.addVectors(pkt.flyStartPos, _target).multiplyScalar(0.5); 
-                const dist = pkt.flyStartPos.distanceTo(_target);
-                _v1.y += dist * 0.5; 
-                _v1.x += (Math.random() - 0.5) * 1.0; 
-                pkt.flyControlPos.copy(_v1);
+                // 贝塞尔高抛线
+                const midPoint = new THREE.Vector3().addVectors(pkt.flyStartPos, target).multiplyScalar(0.5);
+                const distance = pkt.flyStartPos.distanceTo(target);
+                midPoint.y += distance * 0.5; 
+                midPoint.x += (Math.random() - 0.5) * 0.8; 
+                pkt.flyControlPos.copy(midPoint);
             }
         }
 
+        // --- 修复死机：使用对象池生成特效 ---
         function spawnPlus100(pos) {
-            const effect = EFFECT_POOL[effectPoolIndex];
-            effectPoolIndex = (effectPoolIndex + 1) % EFFECT_POOL_SIZE;
-
-            effect.sprite.visible = true;
-            effect.sprite.position.copy(pos);
-            effect.sprite.position.y += 0.2;
-            effect.life = 1.0;
-            effect.sprite.material.opacity = 1.0;
+            // 从池中取出一个 Sprite
+            const item = TEXT_POOL[textPoolIndex];
+            textPoolIndex = (textPoolIndex + 1) % TEXT_POOL_SIZE; // 循环使用
+            
+            const sprite = item.sprite;
+            sprite.visible = true;
+            sprite.position.copy(pos);
+            sprite.position.y += 0.2;
+            sprite.material.opacity = 1.0;
+            
+            item.life = 1.0; // 重置生命周期
         }
 
         function updatePackets(dt, t_ms) {
             const t = t_ms * 0.001;
             const joints = hand.joints;
             
+            let palmCenter = new THREE.Vector3();
+            let fingerTip = new THREE.Vector3();
+            let fingerDir = new THREE.Vector3();
+
             if (joints && joints['wrist']) {
-                _wrist.copy(joints['wrist'].position);
-                _palmCenter.copy(_wrist).add(_v1.set(0, 0.05, 0));
-                
-                _fingerTip.copy(joints['index-finger-tip'].position);
-                _fingerDir.subVectors(_fingerTip, _wrist).normalize();
+                const wrist = joints['wrist'].position;
+                palmCenter.copy(wrist).add(new THREE.Vector3(0, 0.05, 0));
+                fingerTip.copy(joints['index-finger-tip'].position);
+                fingerDir.subVectors(fingerTip, wrist).normalize();
             }
 
-            for (let i = 0; i < PACKET_COUNT; i++) {
-                const p = PACKETS[i];
-                if (!p.mesh.visible) continue;
+            PACKETS.forEach((p, i) => {
+                if (!p.mesh.visible) return;
 
                 if (currentMode === 'PALM' && (p.state === 'IDLE' || p.state === 'FINGER_READY')) p.state = 'PALM_ORBIT';
                 if ((currentMode === 'SWORD_GATHER' || currentMode === 'SWORD_SHOOT') && (p.state === 'IDLE' || p.state === 'PALM_ORBIT')) p.state = 'FINGER_READY';
                 if (currentMode === 'IDLE' && (p.state === 'PALM_ORBIT' || p.state === 'FINGER_READY')) p.state = 'IDLE';
 
-                // A. 待机
+                // A. 待机环绕
                 if (p.state === 'IDLE') {
                     const angle = t * 0.5 + p.idlePhase;
                     const r = 1.2; 
-                    _target.set(Math.cos(angle)*r, p.mesh.position.y, Math.sin(angle)*r);
-                    _target.y += Math.sin(t + i)*0.002;
-                    p.mesh.position.lerp(_target, 0.05);
+                    const target = new THREE.Vector3(Math.cos(angle)*r, p.mesh.position.y, Math.sin(angle)*r);
+                    target.y += Math.sin(t + i)*0.002;
+                    p.mesh.position.lerp(target, 0.05);
                     p.mesh.rotation.y += dt;
                 }
 
-                // B. 混沌护盾
+                // B. 立体法阵 (保留你喜欢的)
                 else if (p.state === 'PALM_ORBIT') {
-                    const r = 0.4;
-                    const angle = t * p.chaosSpeed + p.idlePhase;
+                    const r = p.isInnerCircle ? 0.2 : 0.35;
+                    const speed = p.isInnerCircle ? 2.5 : -2.5; 
+                    const angle = t * speed + i * (Math.PI * 2 / PACKET_COUNT);
                     
-                    _v1.set(Math.cos(angle)*r, Math.sin(angle)*r, Math.sin(angle * 0.5)*r);
-                    _v1.applyAxisAngle(p.chaosAxis, angle * 0.2); 
+                    const target = new THREE.Vector3().copy(palmCenter);
+                    target.x += Math.cos(angle) * r;
+                    target.z += Math.sin(angle) * r;
+                    target.y += Math.sin(angle * 2 + (p.isInnerCircle?0:Math.PI)) * 0.08;
                     
-                    _target.copy(_palmCenter).add(_v1);
-                    p.mesh.position.lerp(_target, 0.1);
-                    p.mesh.rotateOnAxis(p.chaosAxis, 8 * dt);
+                    p.mesh.position.lerp(target, 0.15);
+                    p.mesh.lookAt(palmCenter);
+                    p.mesh.rotateX(-Math.PI/2); 
+                    p.mesh.rotateZ(90 * Math.PI/180);
                 }
 
-                // C. 悬顶蓄力
+                // C. 悬顶蓄力 (不挡视线)
                 else if (p.state === 'FINGER_READY') {
-                    _target.copy(_fingerTip)
-                        .add(_v1.copy(_fingerDir).multiplyScalar(0.2))
-                        .add(_v2.set(0, 0.3, 0));
+                    const targetCenter = new THREE.Vector3().copy(fingerTip)
+                        .add(fingerDir.clone().multiplyScalar(0.2)) 
+                        .add(new THREE.Vector3(0, 0.3, 0)); // 悬顶
 
-                    const nX = Math.sin(t * 2 + i) * 0.05;
-                    const nY = Math.cos(t * 2.5 + i) * 0.05;
-                    const nZ = Math.sin(t * 3 + i) * 0.05;
-                    _target.add(p.gatherOffset).add(_v1.set(nX, nY, nZ));
+                    const noiseX = Math.sin(t * 2 + i) * 0.03;
+                    const noiseY = Math.cos(t * 2.5 + i) * 0.03;
+                    const noiseZ = Math.sin(t * 3 + i) * 0.03;
+                    const target = targetCenter.add(p.gatherOffset).add(new THREE.Vector3(noiseX, noiseY, noiseZ));
                     
-                    p.mesh.position.lerp(_target, 0.1);
+                    p.mesh.position.lerp(target, 0.1); 
                     
-                    if (reticle.visible) {
-                        _v2.copy(reticle.position);
-                    } else {
-                        _v2.copy(_target).add(_fingerDir);
-                    }
-                    p.mesh.lookAt(_v2);
+                    // 始终朝向攻击目标
+                    let aimTarget = new THREE.Vector3();
+                    if(reticle.visible) aimTarget.copy(reticle.position);
+                    else aimTarget.copy(target).add(fingerDir);
+                    
+                    p.mesh.lookAt(aimTarget);
                     p.mesh.rotateX(-Math.PI/2);
                 }
 
                 // D. 弧线射击
                 else if (p.state === 'FLYING') {
-                    const flightDuration = 0.6;
+                    const flightDuration = 0.6; 
                     const progress = (t - p.flyStartTime) / flightDuration;
 
                     if (progress >= 1.0) {
@@ -538,36 +466,36 @@
                         const u = 1 - progress;
                         const tt = progress * progress;
                         const uu = u * u;
-                        
-                        _v1.copy(p.flyStartPos).multiplyScalar(uu);
-                        _v2.copy(p.flyControlPos).multiplyScalar(2 * u * progress);
-                        _v3.copy(p.flyTargetPos).multiplyScalar(tt);
-                        
-                        _target.addVectors(_v1, _v2).add(_v3); 
-                        
-                        _v1.subVectors(p.flyControlPos, p.flyStartPos).multiplyScalar(2 * u);
-                        _v2.subVectors(p.flyTargetPos, p.flyControlPos).multiplyScalar(2 * progress);
-                        _v3.addVectors(_v1, _v2).normalize(); 
+                        const p0 = p.flyStartPos;
+                        const p1 = p.flyControlPos;
+                        const p2 = p.flyTargetPos;
 
-                        p.mesh.position.copy(_target);
-                        _target.add(_v3); 
-                        p.mesh.lookAt(_target);
+                        const pos = new THREE.Vector3();
+                        pos.addScaledVector(p0, uu);
+                        pos.addScaledVector(p1, 2 * u * progress);
+                        pos.addScaledVector(p2, tt);
+                        
+                        const tangent = new THREE.Vector3().subVectors(p2, p0).normalize();
+                        
+                        p.mesh.position.copy(pos);
+                        p.mesh.lookAt(pos.clone().add(tangent));
                         p.mesh.rotateX(-Math.PI/2);
                     }
                 }
-            }
+            });
         }
 
+        // --- 更新特效池 ---
         function updateEffects(dt) {
-            for (let i = 0; i < EFFECT_POOL_SIZE; i++) {
-                const effect = EFFECT_POOL[i];
-                if (effect.sprite.visible) {
-                    effect.life -= dt;
-                    effect.sprite.position.y += dt * 0.5;
-                    effect.sprite.material.opacity = effect.life;
+            for (let i = 0; i < TEXT_POOL_SIZE; i++) {
+                const item = TEXT_POOL[i];
+                if (item.sprite.visible) {
+                    item.life -= dt;
+                    item.sprite.position.y += dt * 0.5;
+                    item.sprite.material.opacity = item.life;
                     
-                    if (effect.life <= 0) {
-                        effect.sprite.visible = false;
+                    if (item.life <= 0) {
+                        item.sprite.visible = false;
                     }
                 }
             }
