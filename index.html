@@ -1,66 +1,40 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Galaxy XR 御剑·性能终极版</title>
+    <title>Vegeta Scouter Overload</title>
+    <!-- 引入龙珠风格字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=ZCOOL+QingKe+HuangYou&display=swap" rel="stylesheet">
+    
     <style>
-        body { margin: 0; overflow: hidden; background-color: #1a1a1a; font-family: "Microsoft YaHei", sans-serif; }
+        body { margin: 0; background: #000; overflow: hidden; font-family: 'ZCOOL QingKe HuangYou', sans-serif; }
         
-        #overlay {
+        #launcher {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: linear-gradient(135deg, #111 0%, #3a0000 100%);
+            background: rgba(10, 0, 0, 0.95);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 9999; color: #fff;
+            z-index: 999; color: #ffaa00;
         }
 
-        h1 { font-size: 2.2rem; color: #FFD700; text-shadow: 0 0 10px #D62828; letter-spacing: 2px; margin-bottom: 10px; }
-        .subtitle { font-size: 1rem; color: #ccc; margin-bottom: 30px; opacity: 0.8; }
+        button {
+            padding: 15px 50px; font-size: 28px; 
+            color: #000; background: #ffaa00; border: none; 
+            border-radius: 2px; cursor: pointer; margin-top: 30px;
+            box-shadow: 0 0 25px #ff4400; 
+            font-family: 'ZCOOL QingKe HuangYou', cursive; letter-spacing: 2px;
+            transition: transform 0.1s;
+        }
+        button:active { transform: scale(0.95); }
 
-        #start-btn {
-            padding: 15px 50px; font-size: 1.2rem; font-weight: bold;
-            color: #fff; background: linear-gradient(to right, #D62828, #B71C1C);
-            border: 2px solid #FFD700; border-radius: 50px; cursor: pointer;
-            box-shadow: 0 0 20px rgba(214, 40, 40, 0.4);
-            transition: 0.3s;
+        #hud-status {
+            position: absolute; bottom: 10%; width: 100%; text-align: center;
+            color: #ffaa00; font-size: 24px; pointer-events: none; 
+            text-shadow: 0 0 5px #ff0000; display: none; letter-spacing: 3px;
         }
-        #start-btn:active { transform: scale(0.95); }
 
-        .guide-grid {
-            margin-top: 30px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
-            width: 90%; max-width: 400px;
-        }
-        .guide-card {
-            background: rgba(255,255,255,0.05); border: 1px solid rgba(255,215,0,0.2);
-            padding: 10px; border-radius: 10px; text-align: center; font-size: 0.9rem;
-        }
-        .icon { font-size: 1.5rem; display: block; margin-bottom: 5px; }
-
-        #ar-status {
-            position: absolute; top: 20px; width: 100%; text-align: center;
-            color: #FFD700; font-weight: bold; font-size: 18px;
-            text-shadow: 0 2px 4px rgba(0,0,0,0.8); pointer-events: none;
-            display: none; z-index: 100;
-        }
+        .font-preload { opacity: 0; position: absolute; font-family: 'ZCOOL QingKe HuangYou', cursive; }
     </style>
-</head>
-<body>
-
-    <div id="overlay">
-        <h1>御剑·发红包</h1>
-        <div class="subtitle">高性能·零卡顿版</div>
-        <button id="start-btn" disabled>环境检测中...</button>
-        
-        <div class="guide-grid">
-            <div class="guide-card"><span class="icon">☝️</span><b>指天</b><br>悬顶蓄力 (补弹)</div>
-            <div class="guide-card"><span class="icon">👉</span><b>指前</b><br>弧线轰炸 (+100¥)</div>
-            <div class="guide-card"><span class="icon">🖐️</span><b>摊手</b><br>混沌力场</div>
-            <div class="guide-card"><span class="icon">✊</span><b>握拳</b><br>全屏重置</div>
-        </div>
-    </div>
-
-    <div id="ar-status">等待手势...</div>
-
     <script type="importmap">
         {
             "imports": {
@@ -69,474 +43,448 @@
             }
         }
     </script>
+</head>
+<body>
 
-    <script type="module">
-        import * as THREE from 'three';
+<div class="font-preload">系统故障错误乱码极度危险</div>
 
-        let container, camera, scene, renderer;
-        let hand;
-        
-        const PACKETS = [];
-        const PACKET_COUNT = 50; 
-        
-        // 特效对象池
-        const EFFECT_POOL = []; 
-        const EFFECT_POOL_SIZE = 30;
-        let effectPoolIndex = 0;
-        
-        let currentMode = 'IDLE'; 
-        let reticle; 
-        let hitTestSource = null;
-        let hitTestSourceRequested = false;
-        
-        let lastTime = 0;
-        let fireRateTimer = 0;
+<div id="launcher">
+    <h1 style="text-shadow: 0 0 20px #ff0000; font-size: 48px; margin: 0; letter-spacing: 5px;">赛亚人探测器</h1>
+    <div style="border-left: 5px solid #ff4400; padding-left: 20px; margin-top: 20px;">
+        <p style="color: #00ffff; opacity: 0.9; font-size: 22px; margin: 5px 0;">模式：过载模拟 (Overload)</p>
+        <p style="color: #ffaa00; font-size: 18px; margin: 5px 0;">特定目标反应：贝吉塔 -> 乱码/闪烁</p>
+    </div>
+    <button id="btn-start">启动 HUD</button>
+</div>
 
-        // --- 性能优化：全局临时变量 (禁止在循环中 new 对象) ---
-        const _v1 = new THREE.Vector3();
-        const _v2 = new THREE.Vector3();
-        const _v3 = new THREE.Vector3();
-        const _target = new THREE.Vector3();
-        const _palmCenter = new THREE.Vector3();
-        const _fingerTip = new THREE.Vector3();
-        const _fingerDir = new THREE.Vector3();
-        const _wrist = new THREE.Vector3();
-        const _dummyVec = new THREE.Vector3();
+<div id="hud-status">系统初始化...</div>
 
-        const btn = document.getElementById('start-btn');
-        const overlay = document.getElementById('overlay');
-        const statusText = document.getElementById('ar-status');
+<script type="module">
+    import * as THREE from 'three';
+    import { XRHandModelFactory } from 'three/addons/webxr/XRHandModelFactory.js';
 
-        init();
+    let camera, scene, renderer;
+    let handLeft, handRight;
+    
+    // 视觉对象
+    let aimCursor;
+    let targetGroup;    
+    let powerSprite;    
+    
+    // 逻辑控制
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+    let isLocked = false;
+    let scanInterval = null;
+    let animationStartTime = 0;
+    
+    // 新增：系统过载状态
+    let isSystemOverload = false;
 
-        function createRedPacketTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 128; canvas.height = 180; // 降低纹理分辨率提升性能
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = '#D62828'; ctx.fillRect(0, 0, 128, 180);
-            ctx.strokeStyle = '#F77F00'; ctx.lineWidth = 4;
-            ctx.beginPath(); ctx.moveTo(10, 50); ctx.quadraticCurveTo(64, 80, 118, 50); ctx.stroke();
-            ctx.fillStyle = '#FCBF49'; ctx.beginPath(); ctx.arc(64, 65, 12, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = '#D62828'; ctx.font = "bold 16px Microsoft YaHei";
-            ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("福", 64, 66);
-            ctx.strokeStyle = '#EAE2B7'; ctx.lineWidth = 2; ctx.strokeRect(5, 5, 118, 170);
-            return new THREE.CanvasTexture(canvas);
-        }
+    // UI 配置
+    const THEME_COLOR = "#ffaa00"; 
+    const THEME_BG = "rgba(20, 0, 0, 0.85)"; 
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = 512; canvas.height = 256;
 
-        function createTextTexture() {
-            const canvas = document.createElement('canvas');
-            canvas.width = 256; canvas.height = 128; // 适度降低
-            const ctx = canvas.getContext('2d');
-            ctx.font = "bold 60px Arial";
-            ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillStyle = "#FFD700"; ctx.strokeStyle = "#D50000"; ctx.lineWidth = 3;
-            ctx.shadowColor = "rgba(0,0,0,0.5)"; ctx.shadowBlur = 2;
-            ctx.strokeText("+100¥", 128, 64); ctx.fillText("+100¥", 128, 64);
-            return new THREE.CanvasTexture(canvas);
-        }
+    // 赛博材质
+    const cyberHandMaterial = new THREE.MeshBasicMaterial({
+        color: 0x00ffff, wireframe: true, transparent: true, opacity: 0.5,
+        blending: THREE.AdditiveBlending, side: THREE.DoubleSide
+    });
 
-        function init() {
-            container = document.createElement('div');
-            document.body.appendChild(container);
+    // 缓动函数
+    function easeOutExpo(x) { return x === 1 ? 1 : 1 - Math.pow(2, -10 * x); }
+    function easeOutBack(x) { const c1 = 1.70158; const c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
 
-            scene = new THREE.Scene();
-            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+    document.getElementById('btn-start').addEventListener('click', initAR);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 限制DPI上限
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.xr.enabled = true;
-            container.appendChild(renderer.domElement);
+    async function initAR() {
+        if (!navigator.xr) return alert("WebXR不支持");
+        const session = await navigator.xr.requestSession('immersive-ar', {
+            requiredFeatures: ['local', 'hit-test'],
+            optionalFeatures: ['hand-tracking', 'dom-overlay'],
+            domOverlay: { root: document.body }
+        });
+        document.getElementById('launcher').style.display = 'none';
+        document.getElementById('hud-status').style.display = 'block';
+        initScene(session);
+    }
 
-            const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
-            scene.add(hemiLight);
-            const dirLight = new THREE.DirectionalLight(0xffd700, 1.0); // 增加方向光
-            dirLight.position.set(0, 5, 0);
-            scene.add(dirLight);
-            
-            // 金色准星
-            const reticleGeo = new THREE.RingGeometry(0.03, 0.04, 32);
-            const reticleMat = new THREE.MeshBasicMaterial({ color: 0xFFD700 }); 
-            reticle = new THREE.Mesh(reticleGeo, reticleMat);
-            reticle.rotation.x = -Math.PI / 2;
-            reticle.visible = false;
-            scene.add(reticle);
+    function initScene(session) {
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
 
-            // 初始化特效池
-            const textTex = createTextTexture();
-            const textMat = new THREE.SpriteMaterial({ map: textTex, transparent: true, opacity: 0, depthTest: false });
-            
-            for (let i = 0; i < EFFECT_POOL_SIZE; i++) {
-                const sprite = new THREE.Sprite(textMat.clone());
-                sprite.visible = false;
-                sprite.scale.set(0.6, 0.3, 1);
-                sprite.renderOrder = 999; // 保证在最上层
-                scene.add(sprite);
-                EFFECT_POOL.push({ sprite: sprite, life: 0 });
-            }
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        renderer.xr.setReferenceSpaceType('local');
+        renderer.xr.setSession(session);
+        session.addEventListener('end', () => location.reload());
 
-            // 初始化红包
-            const rpTex = createRedPacketTexture();
-            const rpGeo = new THREE.PlaneGeometry(0.08, 0.12);
-            const rpMat = new THREE.MeshStandardMaterial({ map: rpTex, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.1 });
+        const light = new THREE.DirectionalLight(0xffffff, 2);
+        light.position.set(0, 5, 2);
+        scene.add(light);
+        scene.add(new THREE.AmbientLight(0x404040));
 
-            for (let i = 0; i < PACKET_COUNT; i++) {
-                const mesh = new THREE.Mesh(rpGeo, rpMat);
-                resetPacketToIdle(mesh, i);
-                scene.add(mesh);
-                
-                // 为每个红包分配完全随机的混沌参数
-                const chaosAxis = new THREE.Vector3(Math.random()-0.5, Math.random()-0.5, Math.random()-0.5).normalize();
-                
-                PACKETS.push({
-                    mesh: mesh,
-                    state: 'IDLE', 
-                    targetPos: new THREE.Vector3(),
-                    idlePhase: Math.random() * Math.PI * 2,
-                    chaosAxis: chaosAxis,
-                    chaosSpeed: 1.0 + Math.random() * 3.0,
-                    gatherOffset: new THREE.Vector3((Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4, (Math.random()-0.5)*0.4),
-                    flyStartPos: new THREE.Vector3(),
-                    flyControlPos: new THREE.Vector3(),
-                    flyTargetPos: new THREE.Vector3(), // 预分配
-                    flyStartTime: 0
-                });
-            }
+        // 十字准星
+        const cursorTexture = createCursorTexture();
+        const cursorMat = new THREE.SpriteMaterial({ map: cursorTexture, color: 0xffffff, transparent: true, opacity: 0.9 });
+        aimCursor = new THREE.Sprite(cursorMat);
+        aimCursor.scale.set(0.08, 0.08, 1);
+        aimCursor.visible = false;
+        scene.add(aimCursor);
 
-            hand = renderer.xr.getHand(0);
+        createTargetVisuals();
+        setupHands();
+
+        renderer.setAnimationLoop(render);
+    }
+
+    function createCursorTexture() {
+        const cvs = document.createElement('canvas');
+        cvs.width = 128; cvs.height = 128;
+        const c = cvs.getContext('2d');
+        c.strokeStyle = '#ffffff';
+        c.lineWidth = 6;
+        c.beginPath(); c.moveTo(64, 20); c.lineTo(64, 108); c.stroke();
+        c.beginPath(); c.moveTo(20, 64); c.lineTo(108, 64); c.stroke();
+        c.beginPath(); c.arc(64, 64, 40, 0, Math.PI*2); c.stroke();
+        return new THREE.CanvasTexture(cvs);
+    }
+
+    function createTargetVisuals() {
+        targetGroup = new THREE.Group();
+        targetGroup.visible = false;
+        scene.add(targetGroup);
+
+        // A. 战术框
+        const bracketGeo = new THREE.BufferGeometry();
+        const s = 0.3; 
+        const vertices = new Float32Array([
+            -s, s, 0,  -s+0.1, s, 0,  -s, s, 0,  -s, s-0.1, 0,
+             s, s, 0,   s-0.1, s, 0,   s, s, 0,   s, s-0.1, 0,
+            -s, -s, 0, -s+0.1, -s, 0, -s, -s, 0, -s, -s+0.1, 0,
+             s, -s, 0,  s-0.1, -s, 0,  s, -s, 0,  s, -s+0.1, 0
+        ]);
+        bracketGeo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+        const bracketMat = new THREE.LineBasicMaterial({ color: 0xffffff, linewidth: 2, transparent: true, opacity: 0 });
+        const brackets = new THREE.LineSegments(bracketGeo, bracketMat);
+        brackets.name = "brackets";
+        targetGroup.add(brackets);
+
+        // B. 激光
+        const planeGeo = new THREE.PlaneGeometry(0.6, 0.02);
+        const planeMat = new THREE.MeshBasicMaterial({ color: 0xff3300, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+        const laserPlane = new THREE.Mesh(planeGeo, planeMat);
+        laserPlane.name = "laser";
+        targetGroup.add(laserPlane);
+
+        // C. 指针
+        const ptrGeo = new THREE.ConeGeometry(0.05, 0.15, 4);
+        const ptrMat = new THREE.MeshBasicMaterial({ color: 0xffffff }); 
+        const leftPtr = new THREE.Mesh(ptrGeo, ptrMat);
+        leftPtr.rotation.z = -Math.PI / 2; leftPtr.name = "leftPtr";
+        targetGroup.add(leftPtr);
+
+        const rightPtr = new THREE.Mesh(ptrGeo, ptrMat);
+        rightPtr.rotation.z = Math.PI / 2; rightPtr.name = "rightPtr";
+        targetGroup.add(rightPtr);
+    }
+
+    function setupHands() {
+        const handModelFactory = new XRHandModelFactory();
+        function buildHand(idx) {
+            const hand = renderer.xr.getHand(idx);
+            hand.add(handModelFactory.createHandModel(hand, "mesh"));
             scene.add(hand);
+            return hand;
+        }
+        handLeft = buildHand(0);
+        handRight = buildHand(1);
+    }
 
-            if ('xr' in navigator) {
-                navigator.xr.isSessionSupported('immersive-ar').then((supported) => {
-                    if (supported) {
-                        btn.innerText = "启动·御剑 (极速版)";
-                        btn.disabled = false;
-                        btn.onclick = onStartAR;
-                    } else {
-                        btn.innerText = "设备不支持 AR";
-                    }
-                });
+    function enforceCyberHandStyle(hand) {
+        if (!hand) return;
+        hand.traverse((child) => {
+            if (child.isMesh && child.material !== cyberHandMaterial) {
+                child.material = cyberHandMaterial;
+                child.renderOrder = 1; 
+            }
+        });
+    }
+
+    // --- 乱码生成器 ---
+    function getGlitchString() {
+        const chars = "!@#$%^&*?ERR0101";
+        let str = "";
+        for(let i=0; i<5; i++) {
+            str += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return str;
+    }
+
+    function updateCanvasUI(powerValue, isFinal) {
+        // 清空
+        ctx.clearRect(0, 0, 512, 256);
+
+        // 闪烁逻辑：如果过载，根据时间戳进行高频闪烁
+        let isFlashOn = true;
+        if (isSystemOverload && isFinal) {
+            isFlashOn = (Date.now() % 200) < 100; // 每100ms切换一次
+        }
+
+        // 背景
+        ctx.fillStyle = isSystemOverload && isFinal && isFlashOn ? "rgba(100, 0, 0, 0.8)" : THEME_BG;
+        ctx.beginPath();
+        ctx.moveTo(0, 0); ctx.lineTo(480, 0); ctx.lineTo(512, 32); 
+        ctx.lineTo(512, 256); ctx.lineTo(32, 256); ctx.lineTo(0, 224); 
+        ctx.closePath();
+        ctx.fill();
+
+        // 边框颜色与文字内容逻辑
+        let borderColor = "#ffaa00"; 
+        let dangerText = "正在分析...";
+        let mainText = Math.floor(powerValue);
+
+        if (isFinal) {
+            if (isSystemOverload) {
+                // --- 贝吉塔模式 (乱码 + 闪烁) ---
+                borderColor = isFlashOn ? "#ff0000" : "rgba(255,0,0,0.2)";
+                dangerText = "!!! 错误 !!!";
+                mainText = getGlitchString(); // 显示乱码
+            } else {
+                // --- 普通模式 ---
+                if (powerValue < 9000) {
+                    borderColor = "#ffffff"; dangerText = "一般般";
+                } else if (powerValue >= 9000 && powerValue <= 18000) {
+                    borderColor = "#ffaa00"; dangerText = "警惕！";
+                } else {
+                    borderColor = "#ff0000"; dangerText = "极度危险";
+                }
             }
         }
 
-        function resetPacketToIdle(mesh, index) {
-            const angle = Math.random() * Math.PI * 2;
-            const radius = 1.0 + Math.random() * 0.8; 
-            const y = (Math.random() - 0.5) * 1.5; 
-            mesh.position.set(Math.cos(angle)*radius, y, Math.sin(angle)*radius);
-            mesh.rotation.set(Math.random()*3, Math.random()*3, Math.random()*3);
-            mesh.visible = true;
+        // 绘制边框
+        ctx.strokeStyle = borderColor; ctx.lineWidth = 6; ctx.stroke();
+        
+        // 装饰线
+        ctx.strokeStyle = "rgba(255, 100, 0, 0.3)"; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(20, 60); ctx.lineTo(492, 60); ctx.stroke();
+        
+        // 主数值/乱码
+        ctx.font = isSystemOverload ? "130px 'ZCOOL QingKe HuangYou'" : "110px 'ZCOOL QingKe HuangYou'";
+        ctx.textAlign = "center";
+        ctx.shadowBlur = 15; ctx.shadowColor = borderColor;
+        ctx.fillStyle = isFinal ? "#fff" : THEME_COLOR;
+        
+        // 如果过载，稍微抖动文字位置
+        let offsetX = 0; let offsetY = 0;
+        if(isSystemOverload && isFinal) {
+            offsetX = (Math.random()-0.5) * 10;
+            offsetY = (Math.random()-0.5) * 10;
+        }
+        ctx.fillText(mainText, 256 + offsetX, 170 + offsetY);
+
+        // 标题
+        ctx.font = "32px 'ZCOOL QingKe HuangYou'"; ctx.fillStyle = "#ffaa00";
+        ctx.shadowBlur = 0; ctx.textAlign = "left";
+        ctx.fillText("战斗力探测仪", 25, 45);
+
+        // 危险等级
+        ctx.textAlign = "right"; ctx.fillStyle = isSystemOverload ? "#ff0000" : borderColor; 
+        ctx.fillText(dangerText, 485, 45);
+
+        // 底部状态
+        ctx.textAlign = "center"; ctx.fillStyle = "#ffffff";
+        ctx.font = "28px 'ZCOOL QingKe HuangYou'";
+        let statusText = isFinal ? "目标已锁定" : "数据读取中...";
+        if(isSystemOverload && isFinal) statusText = "系统承载过大 - 无法计算";
+        ctx.fillText(statusText, 256, 225);
+    }
+
+    function triggerScan(position) {
+        if (isLocked) return;
+        isLocked = true;
+        isSystemOverload = false; // 重置过载状态
+        aimCursor.visible = false;
+        animationStartTime = Date.now();
+
+        targetGroup.position.copy(position);
+        targetGroup.lookAt(camera.position); 
+        targetGroup.visible = true;
+
+        const uiPos = position.clone().add(new THREE.Vector3(0, 0.65, 0));
+
+        if (powerSprite) scene.remove(powerSprite);
+        const texture = new THREE.CanvasTexture(canvas);
+        const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0 });
+        powerSprite = new THREE.Sprite(mat);
+        powerSprite.position.copy(uiPos);
+        powerSprite.scale.set(0, 0, 0); 
+        scene.add(powerSprite);
+
+        // 核心算法
+        const dist = camera.position.distanceTo(position);
+        let calculatedPower = 6000 + (7000 / (dist + 0.1)); 
+        calculatedPower += Math.random() * 2000;
+        let finalPower = Math.min(Math.max(calculatedPower, 8000), 20000);
+
+        // --- 贝吉塔识别逻辑 ---
+        // 既然你说是贝吉塔，我们增加一个概率，或者只要数值足够高(>18000)，就判定为贝吉塔并触发乱码
+        // 为了演示效果，我们强制：如果计算出的数值本来就是“极度危险” (>18000)，就触发贝吉塔故障模式
+        if (finalPower > 18000) {
+            isSystemOverload = true;
+        }
+        
+        // 稍微hack一下：为了让你更容易看到效果，如果距离很近（dist < 1.0），直接判定为贝吉塔
+        if (dist < 1.0) {
+            isSystemOverload = true;
+            finalPower = 22000; // 内部数值设高
         }
 
-        async function onStartAR() {
-            const session = await navigator.xr.requestSession('immersive-ar', {
-                requiredFeatures: ['hit-test', 'hand-tracking']
-            });
-            renderer.xr.setReferenceSpaceType('local');
-            renderer.xr.setSession(session);
-            
-            overlay.style.display = 'none';
-            statusText.style.display = 'block';
+        let steps = 0;
+        scanInterval = setInterval(() => {
+            steps++;
+            const rnd = Math.floor(Math.random() * 25000);
+            updateCanvasUI(rnd, false);
+            texture.needsUpdate = true;
 
-            session.addEventListener('end', () => {
-                overlay.style.display = 'flex';
-                statusText.style.display = 'none';
-                hitTestSource = null;
-                hitTestSourceRequested = false;
-            });
-            
-            animate();
-        }
+            if (steps > 40) { // 2秒
+                // 注意：这里不清空 interval，因为我们需要乱码一直闪烁
+                // 改为进入“结果展示阶段”
+                
+                // 只有普通模式才停止刷新
+                if (!isSystemOverload) {
+                     clearInterval(scanInterval);
+                } else {
+                     // 过载模式：降低刷新频率，变成闪烁动画 loop
+                     clearInterval(scanInterval);
+                     scanInterval = setInterval(()=>{
+                         updateCanvasUI(0, true); // 参数0无所谓，因为内部会用乱码覆盖
+                         texture.needsUpdate = true;
+                     }, 100);
+                }
 
-        function animate() {
-            renderer.setAnimationLoop(render);
-        }
-
-        function render(timestamp, frame) {
-            const dt = (timestamp - lastTime) / 1000;
-            lastTime = timestamp;
-
-            if (renderer.xr.isPresenting) {
-                handleHitTest(frame);
-                handleGestures(dt);
-                updatePackets(dt, timestamp);
-                updateEffects(dt);
+                // 首次展示结果
+                updateCanvasUI(finalPower, true);
+                texture.needsUpdate = true;
+                
+                const brackets = targetGroup.getObjectByName("brackets");
+                if (isSystemOverload) {
+                    brackets.material.color.setHex(0xff0000); // 红色
+                } else if (finalPower >= 9000) {
+                    brackets.material.color.setHex(0xffaa00); // 橙色
+                }
             }
-            renderer.render(scene, camera);
-        }
+        }, 50);
+    }
 
-        function handleHitTest(frame) {
+    function resetSystem() {
+        isLocked = false;
+        isSystemOverload = false;
+        clearInterval(scanInterval);
+        targetGroup.visible = false;
+        targetGroup.children[0].material.color.setHex(0xffffff); 
+        if (powerSprite) {
+            scene.remove(powerSprite);
+            powerSprite = null;
+        }
+        document.getElementById('hud-status').innerText = "系统重置完成";
+    }
+
+    function isPointing(hand) {
+        if (!hand || !hand.joints || !hand.joints['wrist']) return false;
+        const wrist = hand.joints['wrist'].position;
+        const indexTip = hand.joints['index-finger-tip'].position;
+        const middleTip = hand.joints['middle-finger-tip'].position;
+        return wrist.distanceTo(indexTip) > 0.10 && wrist.distanceTo(middleTip) < 0.10;
+    }
+
+    function isFist(hand) {
+        if (!hand || !hand.joints || !hand.joints['wrist']) return false;
+        const wrist = hand.joints['wrist'].position;
+        const indexTip = hand.joints['index-finger-tip'].position;
+        return wrist.distanceTo(indexTip) < 0.09;
+    }
+
+    function render(timestamp, frame) {
+        if (frame) {
+            const refSpace = renderer.xr.getReferenceSpace();
             const session = renderer.xr.getSession();
+            
+            // 强制手部材质
+            enforceCyberHandStyle(handLeft);
+            enforceCyberHandStyle(handRight);
+
             if (!hitTestSourceRequested) {
-                session.requestReferenceSpace('viewer').then((refSpace) => {
-                    session.requestHitTestSource({ space: refSpace }).then((source) => {
-                        hitTestSource = source;
-                    });
+                session.requestReferenceSpace('viewer').then(ref => {
+                    session.requestHitTestSource({ space: ref }).then(source => hitTestSource = source);
                 });
                 hitTestSourceRequested = true;
             }
-            if (hitTestSource) {
-                const hitTestResults = frame.getHitTestResults(hitTestSource);
-                if (hitTestResults.length > 0) {
-                    const hit = hitTestResults[0];
-                    const pose = hit.getPose(renderer.xr.getReferenceSpace());
-                    reticle.visible = true;
-                    reticle.position.copy(pose.transform.position);
-                    reticle.rotation.y += 0.05;
+
+            if (hitTestSource && !isLocked) {
+                const hits = frame.getHitTestResults(hitTestSource);
+                if (hits.length > 0) {
+                    const pose = hits[0].getPose(refSpace);
+                    aimCursor.visible = true;
+                    aimCursor.position.set(pose.transform.position.x, pose.transform.position.y, pose.transform.position.z);
                 } else {
-                    reticle.visible = false;
+                    aimCursor.visible = false;
                 }
             }
-        }
 
-        function handleGestures(dt) {
-            const joints = hand.joints;
-            if (!joints || !joints['wrist']) return;
-
-            // 使用 set/copy 避免创建新对象
-            _wrist.copy(joints['wrist'].position);
-            _fingerTip.copy(joints['index-finger-tip'].position);
-            
-            const middleTip = joints['middle-finger-tip'].position;
-            const thumbTip = joints['thumb-tip'].position;
-            const pinkyTip = joints['pinky-finger-tip'].position;
-
-            const dIndexMiddle = _fingerTip.distanceTo(middleTip);
-            const dIndexWrist = _fingerTip.distanceTo(_wrist);
-            const dPinkyWrist = pinkyTip.distanceTo(_wrist);
-            const dThumbIndex = thumbTip.distanceTo(_fingerTip);
-
-            // 1. 重置
-            if (dIndexWrist < 0.10 && dPinkyWrist < 0.08) {
-                if (currentMode !== 'IDLE') {
-                    currentMode = 'IDLE';
-                    statusText.innerText = "状态：全屏重置";
-                    PACKETS.forEach((p, i) => {
-                        p.state = 'IDLE';
-                        resetPacketToIdle(p.mesh, i);
-                    });
-                }
+            if (!isLocked && aimCursor.visible && isPointing(handRight)) {
+                triggerScan(aimCursor.position);
             }
-            // 2. 剑指
-            else if (dIndexMiddle < 0.04 && dIndexWrist > 0.12 && dPinkyWrist < 0.08) {
-                // 计算朝向，复用全局变量
-                _fingerDir.subVectors(_fingerTip, _wrist).normalize();
+            if (isLocked && isFist(handLeft)) {
+                resetSystem();
+            }
+
+            if (isLocked && targetGroup.visible) {
+                const time = Date.now();
+                const progress = Math.min((time - animationStartTime) / 600, 1.0); 
                 
-                if (_fingerDir.y > 0.6) { // 朝上
-                    currentMode = 'SWORD_GATHER';
-                    statusText.innerText = "状态：悬顶蓄力";
-                    regenerateAmmoIfNeed();
-                } else { // 朝前
-                    currentMode = 'SWORD_SHOOT';
-                    statusText.innerText = "状态：弧线轰炸！";
-                    
-                    fireRateTimer += dt;
-                    if (fireRateTimer > 0.08) { 
-                        fireRateTimer = 0;
-                        fireOnePacket(); // 无需传参，使用全局变量
-                    }
+                // 战术框
+                const brackets = targetGroup.getObjectByName("brackets");
+                const scale = 2.5 - 1.5 * easeOutExpo(progress); 
+                brackets.scale.set(scale, scale, scale);
+                brackets.material.opacity = progress;
+
+                // 指针
+                const leftPtr = targetGroup.getObjectByName("leftPtr");
+                const rightPtr = targetGroup.getObjectByName("rightPtr");
+                const flyDist = 1.5 - 1.0 * easeOutExpo(progress);
+                leftPtr.position.x = -flyDist;
+                rightPtr.position.x = flyDist;
+
+                // UI
+                if (powerSprite) {
+                    const uiScale = easeOutBack(progress);
+                    // 如果过载，稍微放大一点表示不稳定
+                    const jitter = isSystemOverload ? (Math.random()-0.5)*0.05 : 0;
+                    powerSprite.scale.set((1.0+jitter) * uiScale, (0.5+jitter) * uiScale, 1);
+                    powerSprite.material.opacity = progress;
                 }
-            }
-            // 3. 摊手
-            else if (dIndexWrist > 0.10 && dPinkyWrist > 0.10 && dThumbIndex > 0.08) {
-                currentMode = 'PALM';
-                statusText.innerText = "状态：混沌力场";
-                regenerateAmmoIfNeed();
-            }
-        }
 
-        function regenerateAmmoIfNeed() {
-            let activeCount = 0;
-            for(let i=0; i<PACKET_COUNT; i++) {
-                if (PACKETS[i].state !== 'DONE') activeCount++;
-            }
-            if (activeCount < 10) {
-                PACKETS.forEach((p, i) => {
-                    if (p.state === 'DONE') {
-                         p.state = 'IDLE'; 
-                         resetPacketToIdle(p.mesh, i);
-                    }
-                });
-            }
-        }
-
-        function fireOnePacket() {
-            // 设置目标
-            if (reticle.visible) {
-                _target.copy(reticle.position);
-            } else {
-                _target.copy(_fingerTip).add(_v1.copy(_fingerDir).multiplyScalar(5.0));
-            }
-
-            // 查找可用红包
-            let pkt = null;
-            for(let i=0; i<PACKET_COUNT; i++) {
-                if (PACKETS[i].state === 'FINGER_READY') { pkt = PACKETS[i]; break; }
-            }
-            if (!pkt) {
-                for(let i=0; i<PACKET_COUNT; i++) {
-                    if (PACKETS[i].state === 'PALM_ORBIT' || PACKETS[i].state === 'IDLE') { pkt = PACKETS[i]; break; }
-                }
-            }
-
-            if (pkt) {
-                pkt.state = 'FLYING';
-                pkt.mesh.visible = true;
-                pkt.flyStartPos.copy(pkt.mesh.position); 
-                pkt.flyTargetPos.copy(_target);
-                pkt.flyStartTime = performance.now() * 0.001; 
+                // 激光
+                const t = timestamp / 1000;
+                const laser = targetGroup.getObjectByName("laser");
+                // 过载时激光疯狂抖动
+                const laserSpeed = isSystemOverload ? 10 : 3;
+                laser.position.y = Math.sin(t * laserSpeed) * 0.25;
                 
-                // 计算贝塞尔控制点 (无 new)
-                _v1.addVectors(pkt.flyStartPos, _target).multiplyScalar(0.5); // 中点
-                const dist = pkt.flyStartPos.distanceTo(_target);
-                _v1.y += dist * 0.5; // 抬高
-                _v1.x += (Math.random() - 0.5) * 1.0; // 随机偏移
-                pkt.flyControlPos.copy(_v1);
-            }
-        }
-
-        function spawnPlus100(pos) {
-            const effect = EFFECT_POOL[effectPoolIndex];
-            effectPoolIndex = (effectPoolIndex + 1) % EFFECT_POOL_SIZE;
-
-            effect.sprite.visible = true;
-            effect.sprite.position.copy(pos);
-            effect.sprite.position.y += 0.2;
-            effect.life = 1.0;
-            effect.sprite.material.opacity = 1.0;
-        }
-
-        function updatePackets(dt, t_ms) {
-            const t = t_ms * 0.001;
-            const joints = hand.joints;
-            
-            // 更新全局手部位置变量
-            if (joints && joints['wrist']) {
-                _wrist.copy(joints['wrist'].position);
-                _palmCenter.copy(_wrist).add(_v1.set(0, 0.05, 0));
-                
-                _fingerTip.copy(joints['index-finger-tip'].position);
-                _fingerDir.subVectors(_fingerTip, _wrist).normalize();
-            }
-
-            // 使用 for 循环代替 forEach，性能微小提升
-            for (let i = 0; i < PACKET_COUNT; i++) {
-                const p = PACKETS[i];
-                if (!p.mesh.visible) continue;
-
-                // 状态流转
-                if (currentMode === 'PALM' && (p.state === 'IDLE' || p.state === 'FINGER_READY')) p.state = 'PALM_ORBIT';
-                if ((currentMode === 'SWORD_GATHER' || currentMode === 'SWORD_SHOOT') && (p.state === 'IDLE' || p.state === 'PALM_ORBIT')) p.state = 'FINGER_READY';
-                if (currentMode === 'IDLE' && (p.state === 'PALM_ORBIT' || p.state === 'FINGER_READY')) p.state = 'IDLE';
-
-                // --- 物理计算 (全程复用全局变量) ---
-
-                // A. 待机环绕
-                if (p.state === 'IDLE') {
-                    const angle = t * 0.5 + p.idlePhase;
-                    const r = 1.2; 
-                    _target.set(Math.cos(angle)*r, p.mesh.position.y, Math.sin(angle)*r);
-                    _target.y += Math.sin(t + i)*0.002;
-                    p.mesh.position.lerp(_target, 0.05);
-                    p.mesh.rotation.y += dt;
-                }
-
-                // B. 混沌护盾 (无序)
-                else if (p.state === 'PALM_ORBIT') {
-                    // 彻底的混沌：围绕手掌心，在各自随机的轴上旋转
-                    // 使用球坐标系变体
-                    const r = 0.4;
-                    const angle = t * p.chaosSpeed + p.idlePhase;
-                    
-                    // 计算基于 chaosAxis 的旋转位置
-                    // 简化算法：在世界坐标系生成一个圆周运动，然后加上 chaosAxis 的偏移影响
-                    _v1.set(Math.cos(angle)*r, Math.sin(angle)*r, Math.sin(angle * 0.5)*r);
-                    _v1.applyAxisAngle(p.chaosAxis, angle * 0.2); // 动态扭曲
-                    
-                    _target.copy(_palmCenter).add(_v1);
-                    p.mesh.position.lerp(_target, 0.1);
-                    
-                    // 随机自转
-                    p.mesh.rotateOnAxis(p.chaosAxis, 8 * dt);
-                }
-
-                // C. 悬顶蓄力
-                else if (p.state === 'FINGER_READY') {
-                    // 悬顶：指尖上方0.3m, 前方0.2m
-                    _target.copy(_fingerTip)
-                        .add(_v1.copy(_fingerDir).multiplyScalar(0.2))
-                        .add(_v2.set(0, 0.3, 0));
-
-                    // 噪声
-                    const nX = Math.sin(t * 2 + i) * 0.05;
-                    const nY = Math.cos(t * 2.5 + i) * 0.05;
-                    const nZ = Math.sin(t * 3 + i) * 0.05;
-                    _target.add(p.gatherOffset).add(_v1.set(nX, nY, nZ));
-                    
-                    p.mesh.position.lerp(_target, 0.1);
-                    
-                    // 朝向
-                    if (reticle.visible) {
-                        _v2.copy(reticle.position);
-                    } else {
-                        _v2.copy(_target).add(_fingerDir);
-                    }
-                    p.mesh.lookAt(_v2);
-                    p.mesh.rotateX(-Math.PI/2);
-                }
-
-                // D. 弧线射击
-                else if (p.state === 'FLYING') {
-                    const flightDuration = 0.6;
-                    const progress = (t - p.flyStartTime) / flightDuration;
-
-                    if (progress >= 1.0) {
-                        p.mesh.visible = false;
-                        p.state = 'DONE';
-                        spawnPlus100(p.flyTargetPos);
-                    } else {
-                        // 二次贝塞尔 (Zero Allocation)
-                        const u = 1 - progress;
-                        const tt = progress * progress;
-                        const uu = u * u;
-                        
-                        _v1.copy(p.flyStartPos).multiplyScalar(uu); // (1-t)^2 * P0
-                        _v2.copy(p.flyControlPos).multiplyScalar(2 * u * progress); // 2(1-t)t * P1
-                        _v3.copy(p.flyTargetPos).multiplyScalar(tt); // t^2 * P2
-                        
-                        _target.addVectors(_v1, _v2).add(_v3); // Pos
-                        
-                        // 计算切线用于朝向 (简单差分法，足够用于视觉)
-                        // 下一帧的位置近似
-                        // 或者直接用上一帧的位置差，这里为了性能简化，直接看向目标的一点点偏移
-                        // 更准确的是：2(1-t)(P1-P0) + 2t(P2-P1)
-                        _v1.subVectors(p.flyControlPos, p.flyStartPos).multiplyScalar(2 * u);
-                        _v2.subVectors(p.flyTargetPos, p.flyControlPos).multiplyScalar(2 * progress);
-                        _v3.addVectors(_v1, _v2).normalize(); // Tangent
-
-                        p.mesh.position.copy(_target);
-                        _target.add(_v3); // Look at point
-                        p.mesh.lookAt(_target);
-                        p.mesh.rotateX(-Math.PI/2);
-                    }
+                if (progress === 1.0) {
+                    leftPtr.position.x = -0.5 - Math.sin(t * 2) * 0.02; 
+                    rightPtr.position.x = 0.5 + Math.sin(t * 2) * 0.02;
                 }
             }
         }
-
-        function updateEffects(dt) {
-            for (let i = 0; i < EFFECT_POOL_SIZE; i++) {
-                const effect = EFFECT_POOL[i];
-                if (effect.sprite.visible) {
-                    effect.life -= dt;
-                    effect.sprite.position.y += dt * 0.5;
-                    effect.sprite.material.opacity = effect.life;
-                    
-                    if (effect.life <= 0) {
-                        effect.sprite.visible = false;
-                    }
-                }
-            }
-        }
-    </script>
+        renderer.render(scene, camera);
+    }
+</script>
 </body>
 </html>
